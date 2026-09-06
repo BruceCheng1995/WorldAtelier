@@ -1,13 +1,16 @@
 import {watch} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {parseArgs} from './runtime.mjs';
-import {checkoutWorkspace,pushWorkspace,resolveWorkspace,playOffline} from './workspace.mjs';
+import {checkoutWorkspace,pushWorkspace,resolveWorkspace,playOffline,refreshWorkspaceAssets} from './workspace.mjs';
+import {createNativeEditor} from './native-editor.mjs';
 const [command,...values]=process.argv.slice(2),args=parseArgs(values),directory=resolve(args.dir??'.local/workspace');
 const options={directory,server:args.server??'http://127.0.0.1:48900',token:process.env.WORLD_ATELIER_TOKEN,project:args.project,branch:args.branch??'main',message:args.message,world:args.world,build:!args['no-build'],runtimeHash:args['runtime-hash']};
 try{
   if(command==='checkout'){if(!args.project)throw Error('--project=ID required');await checkoutWorkspace(options);}
   else if(command==='play'){await playOffline({file:join(directory,'workspace.json'),edited:!!args.edited,newSave:!!args['new-save'],options:args});}
   else if(command==='resolve'){if(!args['accept-current'])throw Error('Inspect local-conflicts.json, edit content.json, then use resolve --accept-current to accept your full resolution');await resolveWorkspace(directory);console.log('已记录人工冲突解决；尚未再次上传。');}
+  else if(command==='refresh-assets'){const result=await refreshWorkspaceAssets(options);if(result.error)throw Error(result.error);console.log('本地源码依赖已验证；基础提交未改变。');}
+  else if(command==='editor')console.log(JSON.stringify(await createNativeEditor({directory})));
   else if(command==='push')await pushWorkspace(options);
   else if(command==='watch'){
     let busy=false,dirty=false,timer;

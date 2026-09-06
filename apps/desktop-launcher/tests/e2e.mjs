@@ -7,6 +7,7 @@ import {resolve,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {launch} from '../launch.mjs';
+import {createNativeEditor} from '../native-editor.mjs';
 import {checkoutWorkspace,pushWorkspace,prepareOffline,playOffline,resolveWorkspace} from '../workspace.mjs';
 import {atomicWrite,jsonFile,hash,pause,createApi} from '../runtime.mjs';
 const execute=promisify(execFile),HERE=dirname(fileURLToPath(import.meta.url));
@@ -14,7 +15,7 @@ const ROOT=resolve(process.env.WORLD_ATELIER_ROOT??join(HERE,'../../..'));
 const EVIDENCE=resolve(process.env.DESKTOP_EVIDENCE??join(ROOT,'.local/desktop-e2e',String(Date.now())));
 const PORT=Number(process.env.DESKTOP_TEST_PORT??48933),SERVER=`http://127.0.0.1:${PORT}`;
 await mkdir(EVIDENCE,{recursive:true});
-let service=null,relay=null,serverLog='';const assertions=[];
+let service=null,relay=null,watcher=null,serverLog='';const assertions=[];
 async function until(label,fn,timeout=30000){const end=Date.now()+timeout;while(Date.now()<end){try{const r=await fn();if(r)return r;}catch{}await pause(100);}throw Error(`Timeout: ${label}`);}
 async function start(){service=spawn(process.execPath,[join(ROOT,'services/control-plane/server.mjs')],{cwd:ROOT,env:{...process.env,WORLD_ATELIER_PORT:String(PORT),WORLD_ATELIER_DATA:join(EVIDENCE,'server-data')},detached:true,stdio:['ignore','pipe','pipe']});service.stdout.on('data',b=>serverLog+=b);service.stderr.on('data',b=>serverLog+=b);await until('isolated service',async()=>(await fetch(SERVER+'/health')).ok);}
 async function stop(){if(service){const pid=service.pid;try{process.kill(-pid,'SIGTERM');}catch{}await until('service stopped',()=>service.exitCode!==null||service.signalCode!==null,10000);service=null;}await atomicWrite(join(EVIDENCE,'server.log'),serverLog);}
@@ -50,12 +51,16 @@ try{
   let imported,releaseReply;
   let importedPromise=new Promise(r=>imported=r),gate=new Promise(r=>releaseReply=r),seenBody;
   relay=createServer(async(req,res)=>{const chunks=[];for await(const b of req)chunks.push(b);const body=Buffer.concat(chunks);const upstream=await fetch(SERVER+req.url,{method:req.method,headers:{Authorization:req.headers.authorization,'Content-Type':'application/json','Idempotency-Key':req.headers['idempotency-key']??randomUUID()},body:['GET','HEAD'].includes(req.method)?undefined:body});const bytes=Buffer.from(await upstream.arrayBuffer());if(req.url.endsWith('/import')){seenBody=JSON.parse(body);imported();await gate;}res.writeHead(upstream.status,{'Content-Type':'application/json'});res.end(bytes);});await new Promise(r=>relay.listen(PORT+1,'127.0.0.1',r));
-  let remote=await content(editorApi,project.id);remote.content.objects[2].name='同伴在远端提交的名字';await editorApi(`/api/projects/${project.id}/branches/main/commit`,{base_revision:remote.revision,content:remote.content});
+  const remoteRule=(await editorApi(`/api/projects/${project.id}/assets`,{name:'remote-collaborator.gd',mime:'text/x-gdscript',data_base64:Buffer.from(code.replace('45.0','46.0')).toString('base64')})).asset;
+  const originalJsonSize=modelBytes.readUInt32LE(12),originalJson=JSON.parse(modelBytes.subarray(20,20+originalJsonSize).toString());originalJson.asset.generator='World Atelier independent collaborator';
+  const text=Buffer.from(JSON.stringify(originalJson)),padded=Buffer.concat([text,Buffer.alloc((4-text.length%4)%4,32)]),binTail=modelBytes.subarray(20+originalJsonSize),modelHeader=Buffer.from(modelBytes.subarray(0,20));modelHeader.writeUInt32LE(20+padded.length+binTail.length,8);modelHeader.writeUInt32LE(padded.length,12);
+  const remoteModel=(await editorApi(`/api/projects/${project.id}/assets`,{name:'remote-collaborator.glb',mime:'model/gltf-binary',data_base64:Buffer.concat([modelHeader,padded,binTail]).toString('base64')})).asset;
+  let remote=await content(editorApi,project.id);remote.content.objects.find(o=>o.id==='forge_hub').model_asset=remoteModel.hash;remote.content.behaviors=[{id:'offline-rule',asset_hash:remoteRule.hash,api:1}];remote.content.objects[2].name='同伴在远端提交的名字';await editorApi(`/api/projects/${project.id}/branches/main/commit`,{base_revision:remote.revision,content:remote.content});
   let local=await jsonFile(join(directory,'content.json'));local.objects[1].color='#cc8855';await atomicWrite(join(directory,'content.json'),local);
   const pushing=pushWorkspace({directory,server:`http://127.0.0.1:${PORT+1}`,token:owner.token,build:false});await importedPromise;
   local=await jsonFile(join(directory,'content.json'));local.objects[3].x+=.75;await atomicWrite(join(directory,'content.json'),local);releaseReply();await pushing;
   const rebased=await jsonFile(join(directory,'content.json')),base=await jsonFile(join(directory,'workspace.json'));
-  assert.equal(rebased.objects[2].name,'同伴在远端提交的名字');assert.equal(rebased.objects[3].x,local.objects[3].x);assert.notEqual(base.content.objects[3].x,local.objects[3].x);
+  assert.equal(rebased.objects[2].name,'同伴在远端提交的名字');const refreshed=await jsonFile(join(directory,'source-assets.json'));assert.equal(hash(Buffer.from(refreshed[remoteModel.hash].data_base64,'base64')),remoteModel.hash);assert.ok(refreshed[remoteRule.hash]);assert.equal(rebased.objects[3].x,local.objects[3].x);assert.notEqual(base.content.objects[3].x,local.objects[3].x);
   assert.deepEqual(Object.keys(seenBody).sort(),['base_revision','branch','content','format','message','project_id'].sort());assert.ok(!seenBody.content.asset_blobs);assert.ok(!seenBody.state_seed);
   await pushWorkspace({directory,server:SERVER,token:owner.token,build:false});assert.equal((await content(api,project.id)).content.objects[2].name,'同伴在远端提交的名字');
   assertions.push('Real concurrent upload replays local edits made in flight over server merge, updates content.json/base atomically, preserves remote fields on next push, and sends no runtime asset blobs or gameplay state');
@@ -101,6 +106,7 @@ try{
   const standalone=await execute(process.execPath,[join(moved,'launcher/launch.mjs'),`--offline=${join(moved,'workspace.json')}`,'--edited','--headless','--quit-after-seconds=1.2',`--log-dir=${join(EVIDENCE,'standalone-edited-cli')}`],{cwd:'/tmp',timeout:35000,maxBuffer:3_000_000});
   await atomicWrite(join(EVIDENCE,'standalone-edited-cli.log'),standalone.stdout+'\n'+standalone.stderr);
   assert.equal((await jsonFile(join(EVIDENCE,'standalone-edited-cli/launch-receipt.json'))).active_confirmed,true);
+  assertions.push('Two real collaborators merge independent edits and new model/behavior references; authorized hash-verified asset refresh makes the merged source validate and run with the service stopped');
   assertions.push('Local source with materialized real GLB and GDScript assets is validated by downloaded Godot before running in a separate save; invalid candidate leaves playable content/save untouched');
   const corruptArchive=await readFile(prepared.runtime.archive);await writeFile(prepared.runtime.archive,Buffer.from('broken zip'));await assert.rejects(prepareOffline({file:join(moved,'workspace.json'),options:{headless:true},log:()=>{}}),/missing or corrupt/);await atomicWrite(prepared.runtime.archive,corruptArchive);
   assertions.push('Offline missing/corrupt ZIP fails explicitly instead of attempting a hidden network download or trusting existing .app');
@@ -112,6 +118,19 @@ try{
   const rejoined=await launch({server:SERVER,project:project.id,world:world.id,cache:join(EVIDENCE,'online-cache'),headless:true,'quit-after-seconds':1.8,'log-dir':join(EVIDENCE,'native-rejoined')});
   assert.equal(rejoined.latest.release_id,pushed.build.release_id);assert.equal(rejoined.latest.player.crystals,online.latest.player.crystals);
   assertions.push('After real central-service restart, the relocated package resolves local conflict, imports source only, builds with actual pinned Godot, applies the exact release and native client rejoins without importing offline inventory');
+  await cp(join(moved,'editor'),join(moved,'initial-editor'),{recursive:true});await rm(join(moved,'editor'),{recursive:true});
+  await createNativeEditor({directory:moved});
+  const editorPath=join(moved,'editor'),recipe=join(EVIDENCE,'native-editor-recipe.json'),nativeBefore=await jsonFile(join(moved,'content.json')),target=nativeBefore.objects.find(o=>o.id==='forge_hub');
+  await atomicWrite(recipe,{object_id:target.id,x:target.x+1.25,color:'#eec055',solid:!target.solid,name:'Godot 原生场景保存验收'});
+  const godot=process.env.GODOT_BIN??'/Applications/Godot.app/Contents/MacOS/Godot';
+  const importedEditor=await execute(godot,['--headless','--editor','--path',editorPath,'--import'],{timeout:40000,maxBuffer:3000000});await atomicWrite(join(EVIDENCE,'native-editor-import.log'),importedEditor.stdout+importedEditor.stderr);assert.doesNotMatch(importedEditor.stdout+importedEditor.stderr,/SCRIPT ERROR|Parse Error/);
+  let watchLog='';watcher=spawn(process.execPath,[join(moved,'launcher/workspace-cli.mjs'),'watch',`--dir=${moved}`,`--server=${SERVER}`,`--world=${world.id}`,`--runtime-hash=${workspace.release.runtime_hash}`],{env:{...process.env,WORLD_ATELIER_TOKEN:owner.token},stdio:['ignore','pipe','pipe']});watcher.stdout.on('data',b=>watchLog+=b);watcher.stderr.on('data',b=>watchLog+=b);await until('workspace watch ready',()=>watchLog.includes('正在监听'));
+  const sceneSaved=await execute(godot,['--headless','--editor','--path',editorPath,'res://world.tscn','--',`--atelier-edit-recipe=${recipe}`],{timeout:45000,maxBuffer:3000000});await atomicWrite(join(EVIDENCE,'native-editor-save.log'),sceneSaved.stdout+sceneSaved.stderr);assert.match(sceneSaved.stdout,/NATIVE_EDITOR_SCENE_SAVED 0/);assert.match(sceneSaved.stdout,/native_scene_exported/);assert.doesNotMatch(sceneSaved.stdout+sceneSaved.stderr,/SCRIPT ERROR|Parse Error/);
+  await until('native save actual build and world apply',()=>watchLog.includes('world_applied'),90000);watcher.kill('SIGTERM');await until('watch stopped',()=>watcher.exitCode!==null||watcher.signalCode!==null);watcher=null;await atomicWrite(join(EVIDENCE,'native-editor-watch.log'),watchLog);
+  const afterNative=(await content(api,project.id)).content.objects.find(o=>o.id===target.id);assert.equal(afterNative.x,target.x+1.25);assert.equal(afterNative.color,'#eec055');assert.equal(afterNative.solid,!target.solid);assert.equal(afterNative.name,'Godot 原生场景保存验收');
+  const authority=(await api(`/api/worlds/${world.id}`));await atomicWrite(join(EVIDENCE,'native-editor-authority.json'),authority);const fixed=(await api(`/api/projects/${project.id}/branches/main/offline`));assert.equal(fixed.release.id,authority.world.release_id);assert.equal(authority.world.release_applied_sequence,JSON.parse(watchLog.split('\n').find(line=>line.includes('world_applied'))).sequence);assert.deepEqual(fixed.play_content.objects.find(o=>o.id===target.id),afterNative);assert.equal(authority.world.state.effective_rules.attack_damage,46);
+  const nativeView=await launch({server:SERVER,project:project.id,world:world.id,cache:join(EVIDENCE,'online-cache'),'quit-after-seconds':2.2,'log-dir':join(EVIDENCE,'native-edited-online'),capture:join(EVIDENCE,'native-edited-online.png'),'capture-after':1.4});assert.equal(nativeView.latest.release_id,authority.world.release_id);assert.equal(nativeView.latest.player.crystals,online.latest.player.crystals);
+  assertions.push('Real Godot editor imports standalone GLB scene, edits stable-ID Node3D properties and saves via EditorInterface; actual scene_saved export triggers watcher, real Godot build and world apply; actual authority applied sequence matches the fixed release containing edited position/color/collision and graphical native client rejoins with online progress');
   await atomicWrite(join(EVIDENCE,'report.json'),{time:new Date().toISOString(),assertions,project_id:project.id,world_id:world.id,release_id:build.release_id,runtime_hash:workspace.release.runtime_hash,source_revision:workspace.base_revision,play_revision:workspace.play_revision,native_online:{receipt:online.output_file,capture:join(EVIDENCE,'native-online.png')},offline:{packet:offlineTelemetry,capture:join(EVIDENCE,'offline-portable.png'),save:prepared.save,edited_save:edited.save},state:'passed'});
   console.log(JSON.stringify({passed:assertions.length,evidence:EVIDENCE,assertions},null,2));
-}catch(error){await atomicWrite(join(EVIDENCE,'failure.json'),{error:error.message,stack:error.stack,assertions});throw error;}finally{if(relay)await new Promise(r=>relay.close(r));await stop();}
+}catch(error){await atomicWrite(join(EVIDENCE,'failure.json'),{error:error.message,stack:error.stack,assertions});throw error;}finally{if(watcher)watcher.kill('SIGTERM');if(relay)await new Promise(r=>relay.close(r));await stop();}

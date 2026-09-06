@@ -116,3 +116,11 @@ node apps/desktop-launcher/tests/e2e.mjs
 ```
 
 默认使用独立 48933/48934 端口、独立数据目录及真实已导出的 Godot。会打开独立原生窗口并自动截图/退出，关闭它自己启动的中央服务后继续验证离线包。测试不会部署外部服务。
+
+### 原生场景编辑与资产补齐
+
+下载包现在含 `editor/project.godot`：Godot 4.6 打开后可编辑真实 Node3D 的位置、统一缩放、名称、颜色和碰撞开关，保存 `world.tscn` 会经原生 EditorPlugin 信号导出到 `content.json`。配合 `watch` 完成真实构建与世界应用。[完整边界与冲突说明](../../tools/native-editor/README.md)。
+
+push 成功后对远端合并带入的新 GLB/GDScript 引用做授权下载及哈希校验，使本地离线源稿依赖保持完整；若下载失败，源码提交和本地修改仍保存，运行 `refresh-assets --dir=...` 重试，只补资产不移动基础提交。
+
+最新独立端到端新增两项：两人新增资产/独立属性合并后断网真实试玩；Godot editor 保存 → watcher → 实际构建 → 固定 release 应用 → 原生图形客户端接续。测试入口仍为 `apps/desktop-launcher/tests/e2e.mjs`。场景重复保存与冲突保留回归为 `node --test tools/native-editor/merge.test.mjs`。

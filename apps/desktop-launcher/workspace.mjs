@@ -3,6 +3,7 @@ import {join,resolve,dirname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {hash,atomicWrite,jsonFile,createApi,materialize,desktopArtifact,ensureRuntime,validateCandidate,runNative,cleanSource,pause} from './runtime.mjs';
+import {createNativeEditor} from './native-editor.mjs';
 const HERE=dirname(fileURLToPath(import.meta.url));
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const clone=v=>v===undefined?undefined:structuredClone(v);
@@ -64,7 +65,11 @@ export async function checkoutWorkspace({directory,server,token,project,branch='
     await atomicWrite(join(staging,'play-content.json'),workspace.play_content);
     await atomicWrite(join(staging,'source-assets.json'),workspace.source_assets??{});
     const seedFile=join(staging,'seed-state.json');if(workspace.state_seed)await atomicWrite(seedFile,workspace.state_seed);
-    await mkdir(join(staging,'launcher'));for(const file of ['runtime.mjs','workspace.mjs','workspace-cli.mjs','launch.mjs'])await cp(join(HERE,file),join(staging,'launcher',file));
+    await mkdir(join(staging,'launcher'));for(const file of ['runtime.mjs','workspace.mjs','workspace-cli.mjs','launch.mjs','native-editor.mjs'])await cp(join(HERE,file),join(staging,'launcher',file));
+    let templateRoot=join(HERE,'native-editor-template');try{await stat(templateRoot);}catch{templateRoot=resolve(HERE,'../../tools/native-editor/template');}
+    await cp(templateRoot,join(staging,'launcher/native-editor-template'),{recursive:true});
+    if(!workspace.source_preparation_error)await createNativeEditor({directory:staging,templateRoot});
+    else await atomicWrite(join(staging,'NATIVE-EDITOR-UNAVAILABLE.txt'),`Source dependencies unavailable: ${workspace.source_preparation_error}\nRefresh assets, then run node launcher/workspace-cli.mjs editor --dir=.\n`);
     const identity=hash({user:workspace.user_id,workspace:workspace.workspace_id,domain:workspace.local.state_domain,mode:'playable',release:workspace.release.id}).slice(0,24);
     const stateDir=join(staging,'saves',identity);await mkdir(stateDir,{recursive:true});
     if(workspace.state_seed)await atomicWrite(join(stateDir,'state.json'),workspace.state_seed);
@@ -81,18 +86,43 @@ export async function checkoutWorkspace({directory,server,token,project,branch='
     await rename(staging,directory);log(JSON.stringify({stage:'offline_package_ready',directory,workspace_id:workspace.workspace_id,play_revision:workspace.play_revision,base_revision:workspace.base_revision,source_ahead_of_playable:workspace.source_ahead_of_playable,client_sha256:artifact.sha256}));return workspace;
   }catch(e){await rm(staging,{recursive:true,force:true});throw e;}
 }
+export async function refreshSourceAssets({directory,server,token,workspace,source,api,log=console.log}) {
+  directory=resolve(directory);workspace??=await jsonFile(join(directory,'workspace.json'));source??=await jsonFile(join(directory,'content.json'));
+  api??=createApi({server,token,journalDir:join(directory,'.operations')});
+  const blobs={...(workspace.play_content?.asset_blobs??{}),...await jsonFile(join(directory,'source-assets.json'),{})},needed=new Map();
+  for(const object of source.objects??[])if(object.model_asset)needed.set(object.model_asset,'model/gltf-binary');
+  for(const module of source.behaviors??[])needed.set(module.asset_hash,'text/x-gdscript');
+  let problem=null;
+  try {
+    for(const [key,mime] of needed){
+      if(blobs[key]?.mime===mime&&hash(Buffer.from(blobs[key]?.data_base64??'','base64'))===key)continue;
+      const result=await api(`/api/projects/${encodeURIComponent(workspace.project_id)}/assets/${encodeURIComponent(key)}`);
+      if(result.asset?.hash!==key||result.asset?.mime!==mime||hash(Buffer.from(result.data_base64??'','base64'))!==key)throw Error(`Received incompatible or corrupt source asset ${key}`);
+      blobs[key]={mime,data_base64:result.data_base64};log(JSON.stringify({stage:'source_asset_verified',hash:key,mime}));
+    }
+    materialize(source,blobs);
+    try{await stat(join(directory,'editor/project.godot'));for(const [key,mime] of needed)if(mime==='model/gltf-binary')await atomicWrite(join(directory,'editor/assets',key+'.glb'),Buffer.from(blobs[key].data_base64,'base64'));}catch(error){if(error.code!=='ENOENT')throw error;}
+  } catch(error){problem=error.message;}
+  await atomicWrite(join(directory,'source-assets.json'),blobs);
+  const issue=join(directory,'source-preparation-error.json');
+  if(problem)await atomicWrite(issue,{error:problem,at:Date.now(),base_revision:workspace.base_revision,required_hashes:[...needed.keys()]});
+  else await rm(issue,{force:true});
+  return {assets:blobs,error:problem};
+}
 export async function pushWorkspace({directory,server,token,message='外部工作区编辑',world,build=true,runtimeHash,log=console.log}){
   directory=resolve(directory);return lock(directory,async()=>{
     let workspace=await checkWorkspace(directory);const local=cleanSource(await jsonFile(join(directory,'content.json')));
-    if(equal(local,workspace.content)){log('没有内容修改');return {unchanged:true};}
+    if(equal(local,workspace.content)){const assets=await refreshSourceAssets({directory,server,token,workspace,source:local,log});await atomicWrite(join(directory,'workspace.json'),{...workspace,source_assets:assets.assets,source_preparation_error:assets.error});if(assets.error)throw Error('Source unchanged but offline asset preparation is incomplete: '+assets.error);log('没有内容修改；本地资源依赖完整');return {unchanged:true};}
     const api=createApi({server,token,journalDir:join(directory,'.operations')});const path=`/api/projects/${encodeURIComponent(workspace.project_id)}/branches/${encodeURIComponent(workspace.branch)}`;
     // Import only the source domain; never spread a workspace or runtime materialization.
     const committed=await api(path+'/import',{format:1,project_id:workspace.project_id,branch:workspace.branch,base_revision:workspace.base_revision,content:local,message});
+    const assetSync=await refreshSourceAssets({directory,api,workspace,source:committed.content,log});
     const current=cleanSource(await jsonFile(join(directory,'content.json'))),replay=mergeThree(local,current,committed.content);
-    workspace={...workspace,base_revision:committed.revision,content:cleanSource(committed.content),source_ahead_of_playable:committed.revision!==workspace.play_revision,local:{...workspace.local,source_verified:false}};
+    workspace={...workspace,base_revision:committed.revision,content:cleanSource(committed.content),source_ahead_of_playable:committed.revision!==workspace.play_revision,source_assets:assetSync.assets,source_preparation_error:assetSync.error,local:{...workspace.local,source_verified:false}};
     const backup=join(directory,'.history',`${Date.now()}-${randomUUID()}`);await mkdir(backup,{recursive:true});await atomicWrite(join(backup,'uploaded.json'),local);await atomicWrite(join(backup,'before-replay.json'),current);await atomicWrite(join(backup,'server-merged.json'),committed.content);
     if(replay.conflicts.length){await atomicWrite(join(directory,'local-conflicts.json'),{base:local,local:current,merged:committed.content,conflicts:replay.conflicts,revision:committed.revision});await atomicWrite(join(directory,'workspace.json'),workspace);throw Error('Server committed the upload, but newer local edits conflict with merged content; local content.json was retained. Resolve local-conflicts.json before pushing again.');}
     await writeTransaction(directory,workspace,current,replay.value);
+    if(assetSync.error)throw Error('Source was committed and local edits preserved, but offline dependencies are incomplete; run refresh-assets to retry: '+assetSync.error);
     log(JSON.stringify({stage:'source_committed',revision:committed.revision,local_edits_replayed:!equal(local,current)}));
     if(!build)return {revision:committed.revision,content:replay.value};
     let task=(await api(path+'/build',runtimeHash?{runtime_hash:runtimeHash}:{})).build;const end=Date.now()+180000;
@@ -103,7 +133,29 @@ export async function pushWorkspace({directory,server,token,message='外部工�
     return {revision:committed.revision,build:task,applied};
   });
 }
+export async function refreshWorkspaceAssets(options){
+  const directory=resolve(options.directory);return lock(directory,async()=>{
+    const workspace=await checkWorkspace(directory),result=await refreshSourceAssets({...options,directory,workspace});
+    await atomicWrite(join(directory,'workspace.json'),{...workspace,source_assets:result.assets,source_preparation_error:result.error});return result;
+  });
+}
 export async function resolveWorkspace(directory){return lock(resolve(directory),async()=>{const conflict=await jsonFile(join(directory,'local-conflicts.json'));const source=cleanSource(await jsonFile(join(directory,'content.json')));await atomicWrite(join(directory,'.history',`resolved-${Date.now()}.json`),{conflict,accepted:source});await atomicWrite(join(directory,'content.json'),source);await rm(join(directory,'local-conflicts.json'));});}
+export async function mergeNativeScene(directory){
+  directory=resolve(directory);return lock(directory,async()=>{
+    const workspace=await checkWorkspace(directory),editor=join(directory,'editor');
+    const base=await jsonFile(join(editor,'import-base.json')),local=cleanSource(await jsonFile(join(editor,'scene-export.json'))),remote=cleanSource(await jsonFile(join(directory,'content.json')));
+    if(!local.objects?.length||new Set(local.objects.map(o=>o.id)).size!==local.objects.length)throw Error('Native scene has duplicate IDs or no objects; workspace retained');
+    const blobs={...workspace.play_content?.asset_blobs,...await jsonFile(join(directory,'source-assets.json'),{})};materialize(local,blobs);
+    const merged=mergeThree(base,local,remote),conflictFile=join(editor,'native-export-conflicts.json');
+    if(merged.conflicts.length){await atomicWrite(conflictFile,{base,local,remote,conflicts:merged.conflicts,at:Date.now()});throw Error('Native scene conflicts with workspace edits; content.json is untouched; resolve the conflicting scene fields and save again');}
+    await writeTransaction(directory,workspace,remote,merged.value);
+    // The scene's acknowledged snapshot is L, not merged M. A stale scene field
+    // must never revert an independent web/remote field on the next native save.
+    await atomicWrite(join(editor,'import-base.json'),local);await rm(conflictFile,{force:true});
+    const receipt={stage:'native_scene_exported',at:Date.now(),source_hash:hash(merged.value),scene_hash:hash(local),base_revision:workspace.base_revision,objects:local.objects.length};
+    await atomicWrite(join(editor,'export-receipt.json'),receipt);return receipt;
+  });
+}
 export async function prepareOffline({file,edited=false,newSave=false,options={},log=console.log}){
   file=resolve(file);const directory=dirname(file),workspace=await jsonFile(file);if(!workspace.local||!workspace.play_content)throw Error('Not a complete downloaded offline package; use workspace checkout first');
   await recoverTransaction(directory);
