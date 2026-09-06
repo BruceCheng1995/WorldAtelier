@@ -1,5 +1,6 @@
 class_name ExpeditionState
 extends RefCounted
+const Assets = preload("res://scripts/live_assets.gd")
 
 var content: Dictionary = {}
 var state: Dictionary = {}
@@ -95,6 +96,9 @@ func initialize(candidate: Dictionary, saved: Variant = null) -> String:
 	var error = validate(candidate)
 	if not error.is_empty():
 		return error
+	var prepared_assets = Assets.prepare(candidate)
+	if not prepared_assets.ok:
+		return prepared_assets.error
 	content = candidate.duplicate(true)
 	state = {"schema": 1, "tick": 0, "world_time": 0.0, "players": {}, "enemies": {}, "objects": {}, "events": [], "tasks": [], "objectives": {"beacons": 0, "boss_defeated": false}, "event_serial": 0}
 	if saved is Dictionary and saved.get("schema", 1) == 1:

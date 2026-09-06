@@ -1,4 +1,6 @@
 extends Node3D
+const Assets = preload("res://scripts/live_assets.gd")
+var prepared_assets: Dictionary = {}
 
 var game_root: Node
 var camera: Camera3D
@@ -18,6 +20,7 @@ var selected = ""
 var selection: Node3D
 var camera_target = Vector3(0, 0, 6)
 var outline_shader: Shader
+var floor_shader: Shader
 var effects_live: Array = []
 var screen_shake = 0.0
 
@@ -57,8 +60,10 @@ func _ready() -> void:
 	add_child(actors)
 	effects = Node3D.new()
 	add_child(effects)
+	floor_shader = Shader.new()
+	floor_shader.code = "shader_type spatial; uniform vec4 stone_color : source_color; uniform float grid_strength = 0.16; varying vec3 world_pos; void vertex(){world_pos=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;} void fragment(){vec2 p=world_pos.xz*0.48;vec2 cell=abs(fract(p)-0.5);float grout=smoothstep(0.475,0.495,max(cell.x,cell.y));float variety=sin(floor(p.x)*13.4+floor(p.y)*41.7)*0.045;ALBEDO=stone_color.rgb*(0.95+variety)*(1.0-grout*grid_strength);ROUGHNESS=0.94;}"
 	outline_shader = Shader.new()
-	outline_shader.code = "shader_type spatial; render_mode unshaded,cull_front; uniform vec4 line_color : source_color = vec4(0.3,1.0,1.0,1.0); void vertex(){VERTEX += NORMAL * 0.075;} void fragment(){ALBEDO=line_color.rgb;EMISSION=line_color.rgb*0.8;}"
+	outline_shader.code = "shader_type spatial; render_mode unshaded,cull_front; uniform vec4 line_color : source_color = vec4(0.3,1.0,1.0,1.0); void vertex(){VERTEX += NORMAL * 0.035;} void fragment(){ALBEDO=line_color.rgb;EMISSION=line_color.rgb*0.8;}"
 
 func mat(color: Color, emission: float = 0.0, metal: float = 0.0) -> StandardMaterial3D:
 	var key = color.to_html() + str(emission) + str(metal)
@@ -138,7 +143,11 @@ func label(parent: Node3D, text: String, pos: Vector3, color: Color, font_size: 
 	parent.add_child(node)
 	return node
 
-func build_world(candidate: Dictionary) -> void:
+func build_world(candidate: Dictionary) -> String:
+	var prepared = Assets.prepare(candidate)
+	if not prepared.ok:
+		return prepared.error
+	prepared_assets = prepared.scenes
 	content = candidate
 	selected = ""
 	if is_instance_valid(selection):
@@ -168,6 +177,7 @@ func build_world(candidate: Dictionary) -> void:
 	var title_anchor = Node3D.new()
 	terrain.add_child(title_anchor)
 	label(title_anchor, "S T A R P O R T", Vector3(0, .2, 20), Color("#a6d5d5"), 25)
+	return ""
 
 func build_island(zone: Dictionary) -> void:
 	var root = Node3D.new()
@@ -176,7 +186,12 @@ func build_island(zone: Dictionary) -> void:
 	var color = Color(zone.color)
 	cylinder(root, Vector3(0, -4.7, 0), zone.radius * .60, 8.5, color.darkened(.62), zone.radius, 18)
 	cylinder(root, Vector3(0, -.8, 0), zone.radius, 1.3, color.darkened(.24), zone.radius * .99, 56)
-	cylinder(root, Vector3(0, -.06, 0), zone.radius * .99, .25, color, -1, 64)
+	var floor_mesh = cylinder(root, Vector3(0, -.06, 0), zone.radius * .99, .25, color, -1, 64)
+	var floor_material = ShaderMaterial.new()
+	floor_material.shader = floor_shader
+	floor_material.set_shader_parameter("stone_color", color)
+	floor_material.set_shader_parameter("grid_strength", .17 if zone.id in ["observatory", "citadel"] else .035)
+	floor_mesh.material_override = floor_material
 	ring(root, Vector3(0, .09, 0), zone.radius - .6, color.lightened(.25), .07)
 	# Concentric inlaid architecture and radial pathway wedges.
 	for rr in [6.0, 12.0]:
@@ -200,6 +215,11 @@ func build_object(object: Dictionary) -> void:
 	root.set_meta("definition", object)
 	objects[object.id] = root
 	var color = Color(object.get("color", "#72dad2"))
+	if object.has("model_asset") and prepared_assets.has(object.model_asset):
+		var model = prepared_assets[object.model_asset].instantiate()
+		root.add_child(model)
+		model.name = "ContentModel"
+		return
 	match object.kind:
 		"bridge":
 			box(root, Vector3(0, -.25, 0), Vector3(object.length, .45, object.width), Color("#416369"))
@@ -291,6 +311,21 @@ func build_object(object: Dictionary) -> void:
 func actor(player: bool, kind: String, color: Color) -> Node3D:
 	var root = Node3D.new()
 	actors.add_child(root)
+	if player and ResourceLoader.exists("res://assets/explorer.glb"):
+		var packed = load("res://assets/explorer.glb")
+		var avatar = packed.instantiate()
+		avatar.name = "Avatar"
+		avatar.rotation.y = PI
+		root.add_child(avatar)
+		ring(root, Vector3(0, .08, 0), .72, color, .04)
+		label(root, "EXPLORER", Vector3(0, 2.9, 0), Color("#e5f6ec"), 22).name = "NameLabel"
+		var animations = avatar.find_children("*", "AnimationPlayer", true, false)
+		if not animations.is_empty():
+			root.set_meta("animation_player", animations[0])
+			for animation_name in animations[0].get_animation_list():
+				if str(animation_name) in ["Idle", "Walk"]:
+					animations[0].get_animation(animation_name).loop_mode = Animation.LOOP_LINEAR
+		return root
 	if player:
 		cylinder(root, Vector3(0, .06, 0), .7, .06, Color(.06, .13, .2, .5), -1, 16)
 		ring(root, Vector3(0, .08, 0), .74, color, .045)
@@ -362,11 +397,21 @@ func update_world(new_state: Dictionary, local_user: String, delta: float) -> vo
 		var facing = Vector2(player.get("facing_x", 0), player.get("facing_z", -1))
 		node.rotation.y = lerp_angle(node.rotation.y, atan2(-facing.x, -facing.y), delta * 15)
 		var motion = clampf(distance * 5, 0, 1)
-		node.get_node("Body").position.y = sin(time * 14) * .07 * motion
-		node.get_node("LeftLeg").rotation.x = sin(time * 14) * .45 * motion
-		node.get_node("RightLeg").rotation.x = -sin(time * 14) * .45 * motion
 		var attacking = float(player.get("attack_until", 0)) > float(state.get("world_time", 0))
-		node.get_node("Body/Weapon").rotation.x = -.9 + sin(time * 28) * .8 if attacking else .08
+		if node.has_meta("animation_player"):
+			var anim = node.get_meta("animation_player")
+			var clip = "Walk" if motion > .13 else "Idle"
+			if float(player.get("dash_until", 0)) > float(state.get("world_time", 0)):
+				clip = "Dash"
+			elif attacking:
+				clip = "Strike"
+			if anim.current_animation != clip and anim.has_animation(clip):
+				anim.play(clip, .10)
+		else:
+			node.get_node("Body").position.y = sin(time * 14) * .07 * motion
+			node.get_node("LeftLeg").rotation.x = sin(time * 14) * .45 * motion
+			node.get_node("RightLeg").rotation.x = -sin(time * 14) * .45 * motion
+			node.get_node("Body/Weapon").rotation.x = -.9 + sin(time * 28) * .8 if attacking else .08
 		node.get_node("NameLabel").text = str(player.get("name", "Explorer")) + (" · YOU" if id == local_user else "")
 		if id == local_user:
 			camera_target = camera_target.lerp(desired, minf(1, delta * 5))

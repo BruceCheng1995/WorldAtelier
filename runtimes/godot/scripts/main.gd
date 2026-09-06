@@ -3,6 +3,8 @@ extends Node3D
 const Game = preload("res://scripts/game_state.gd")
 const Visual = preload("res://scripts/world_visual.gd")
 const Overlay = preload("res://scripts/hud.gd")
+const Soundscape = preload("res://scripts/audio.gd")
+var soundscape: Node
 var game = Game.new()
 var visual: Node3D
 var hud: Control
@@ -21,6 +23,7 @@ var initialized = false
 var sent_hello = false
 var connection_status = "PREPARING EXPEDITION"
 var request_serial = 0
+var session_nonce = Crypto.new().generate_random_bytes(12).hex_encode()
 var send_clock = 0.0
 var snapshot_clock = 0.0
 var telemetry_clock = 0.0
@@ -70,6 +73,8 @@ func _ready() -> void:
 		if script is Array:
 			input_script = script
 	if DisplayServer.get_name() != "headless" and role != "authority":
+		soundscape = Soundscape.new()
+		add_child(soundscape)
 		visual = Visual.new()
 		add_child(visual)
 		hud = Overlay.new()
@@ -78,6 +83,8 @@ func _ready() -> void:
 		canvas.add_child(hud)
 		hud.game_root = self
 		visual.game_root = self
+		if args.has("camera-size"):
+			visual.camera.size = clampf(float(args["camera-size"]), 12, 45)
 	if role == "offline":
 		user_id = str(args.get("offline-user", "offline-explorer"))
 		var candidate = load_json(str(args.get("content", "res://content/world.json")))
@@ -146,6 +153,7 @@ func _process(delta: float) -> void:
 			scripted_index += 1
 	if visual and initialized:
 		visual.update_world(state, user_id, delta)
+		soundscape.update_state(state, user_id)
 	if hud:
 		hud.queue_redraw()
 	telemetry_clock += delta
@@ -228,7 +236,10 @@ func receive(packet: Dictionary) -> void:
 			initialized = true
 			connection_status = "SYNCHRONIZING WORLD"
 			if visual:
-				visual.build_world(content)
+				error = visual.build_world(content)
+				if not error.is_empty():
+					fail("Client asset preparation failed: " + error)
+					return
 			send({"type": "loaded", "release_id": release_id})
 		"active":
 			active = true
@@ -247,14 +258,18 @@ func receive(packet: Dictionary) -> void:
 			last_sequence = int(packet.get("sequence", last_sequence))
 		"content":
 			active = false
-			var error = Game.validate(packet.get("content"))
+			var candidate = packet.get("content")
+			var error = Game.validate(candidate)
+			if error.is_empty() and visual:
+				error = visual.build_world(candidate)
 			if not error.is_empty():
-				fail("Content update rejected: " + error)
+				send({"type": "content_rejected", "release_id": packet.get("release_id", ""), "error": error})
+				connection_status = "UPDATE REJECTED · PREVIOUS VIEW"
+				show_log("Content rejected; previous view preserved: " + error)
 				return
-			content = packet.content
+			active = false
+			content = candidate
 			release_id = str(packet.release_id)
-			if visual:
-				visual.build_world(content)
 			send({"type": "loaded", "release_id": release_id})
 			show_log("WORLD UPDATED · your expedition continues")
 		"ack":
@@ -274,6 +289,8 @@ func send(packet: Dictionary) -> void:
 func issue_command(action: String, payload: Dictionary = {}) -> void:
 	if not active:
 		return
+	if soundscape and action != "move":
+		soundscape.activate()
 	request_serial += 1
 	if role == "offline":
 		var result = game.command(user_id, action, payload)
@@ -282,7 +299,7 @@ func issue_command(action: String, payload: Dictionary = {}) -> void:
 		if action != "move":
 			save_offline()
 	else:
-		send({"type": "command", "request_id": "g-" + str(Time.get_ticks_msec()) + "-" + str(request_serial), "epoch": epoch, "release_id": release_id, "control_generation": control_generation, "action": action, "payload": payload})
+		send({"type": "command", "request_id": "g-" + session_nonce + "-" + str(request_serial), "epoch": epoch, "release_id": release_id, "control_generation": control_generation, "action": action, "payload": payload})
 
 func process_controls(delta: float) -> void:
 	var direction = Vector2.ZERO
@@ -310,6 +327,8 @@ func process_controls(delta: float) -> void:
 			issue_command("attack")
 
 func _unhandled_input(event: InputEvent) -> void:
+	if soundscape and (event is InputEventKey or event is InputEventMouseButton):
+		soundscape.activate()
 	if not active:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -331,6 +350,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			issue_command("select", {"object_id": id})
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			issue_command("attack")
+		elif event.button_index == MOUSE_BUTTON_WHEEL_UP and visual:
+			visual.camera.size = maxf(14, visual.camera.size - 2)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and visual:
+			visual.camera.size = minf(42, visual.camera.size + 2)
 
 func _on_browser_message(arguments: Array) -> void:
 	if arguments.is_empty():
