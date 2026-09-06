@@ -23,13 +23,18 @@ export class Worlds extends EventEmitter {
     try{return await this.waitReady(world.id);}catch(error){await this.stopHost(world.id);throw error;}
   }
   async recover(world) {
-    const ready=await this.start(world);
-    if(world.upgrade_id){
-      const receipt=this.store.get('upgrade',world.upgrade_id);
-      if(receipt&&['freezing','starting'].includes(receipt.status)){
-        receipt.status=ready.release_id===receipt.target_release?'complete':'rolled-back';receipt.recovered_after_restart=true;receipt.target_epoch=ready.epoch;receipt.target_watermark=ready.durable_sequence;receipt.finished_at=Date.now();
-        delete ready.upgrade_id;this.store.transaction(()=>{this.store.put('upgrade',receipt);this.store.put('world',ready);});
-      }
+    const receipt=world.upgrade_id?this.store.get('upgrade',world.upgrade_id):null;
+    let ready;
+    try{ready=await this.start(world);}
+    catch(error){
+      if(!receipt||world.release_id===receipt.source_release)throw error;
+      await this.stopHost(world.id);world=this.store.get('world',world.id);world.release_id=receipt.source_release;world.status='starting';this.store.put('world',world);
+      receipt.error=error.message;
+      try{ready=await this.start(world);}catch(recovery){receipt.status='recovery-required';receipt.recovery_error=recovery.message;this.store.put('upgrade',receipt);throw recovery;}
+    }
+    if(receipt&&['freezing','starting'].includes(receipt.status)){
+      receipt.status=ready.release_id===receipt.target_release?'complete':'rolled-back';receipt.recovered_after_restart=true;receipt.target_epoch=ready.epoch;receipt.target_watermark=ready.durable_sequence;receipt.finished_at=Date.now();
+      delete ready.upgrade_id;this.store.transaction(()=>{this.store.put('upgrade',receipt);this.store.put('world',ready);});
     }
     return ready;
   }
@@ -46,6 +51,7 @@ export class Worlds extends EventEmitter {
   receive(socket,msg) {
     const w=this.store.get('world',socket.world_id),host=this.hosts.get(socket.world_id);
     if(!w||host?.socket!==socket||w.epoch!==socket.authority_epoch)return socket.close(1008,'Fenced authority');
+    if(msg.type==='error')return this.fail(w.id,String(msg.error??'Authority initialization failed'));
     if(msg.type==='ready') {
       if(msg.release_id!==w.release_id)return this.fail(w.id,'Authority loaded incorrect release');
       if(msg.state){

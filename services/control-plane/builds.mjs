@@ -7,10 +7,11 @@ import {digest,validateContent} from './content.mjs';
 
 export class Builds {
   constructor({store,root,data,godot}) {Object.assign(this,{store,root,data,godot});this.running=new Map();for(const build of store.list('build'))if(['queued','running'].includes(build.status)){build.status='failed';build.error='Build interrupted by service restart; previous playable release retained';build.finished_at=Date.now();store.put('build',build);}}
-  schedule(project,branch,user) {
+  schedule(project,branch,user,options={}) {
+    if(options.runtime_hash&&(!/^[a-f0-9]{64}$/.test(options.runtime_hash)||!existsSync(join(this.root,'.local/artifacts',options.runtime_hash,'manifest.json'))))throw Error('Unknown exported runtime');
     const id='build_'+randomUUID();
     branch.publish_generation=(branch.publish_generation??0)+1;this.store.put('branch',branch);
-    const build={id,project_id:project.id,branch:branch.name,revision:branch.source_head,generation:branch.publish_generation,status:'queued',author:user.name,created_at:Date.now(),log:''};
+    const build={id,project_id:project.id,branch:branch.name,revision:branch.source_head,generation:branch.publish_generation,status:'queued',author:user.name,created_at:Date.now(),log:'',runtime_hash:options.runtime_hash??null};
     this.store.put('build',build);this.store.event(project.id,{kind:'build',title:`构建 ${branch.name}`,actor:user.name,build_id:id});
     const task=this.execute(build).catch(e=>{build.status='failed';build.error=e.message;build.finished_at=Date.now();this.store.put('build',build);this.store.event(project.id,{kind:'build_failed',title:e.message,build_id:id});}).finally(()=>this.running.delete(id));this.running.set(id,task);return build;
   }
@@ -18,13 +19,15 @@ export class Builds {
     build.status='running';this.store.put('build',build);
     const revision=this.store.get('revision',build.revision);validateContent(revision.content);
     const dir=join(this.data,'builds',build.id);mkdirSync(dir,{recursive:true});const source=join(dir,'content.json');writeFileSync(source,JSON.stringify(materializeContent(this.store,this.data,build.project_id,revision.content)));
-    const runtimeManifest=join(this.root,'.local/runtime-build/manifest.json');
+    const runtimeManifest=build.runtime_hash?join(this.root,'.local/artifacts',build.runtime_hash,'manifest.json'):join(this.root,'.local/runtime-build/manifest.json');
     if(!existsSync(runtimeManifest))throw Error('Real desktop/Web exports are not built yet. Run npm run build:runtime.');
     const runtime=JSON.parse(readFileSync(runtimeManifest,'utf8'));
     const gameRoot=join(this.root,'runtimes/godot');
     const files=directory=>readdirSync(directory,{withFileTypes:true}).filter(e=>!['.godot','.git','build','exports'].includes(e.name)).flatMap(e=>e.isDirectory()?files(join(directory,e.name)):[join(directory,e.name)]);
     const sourceHash=digest(files(gameRoot).filter(f=>!f.endsWith('/README.md')).sort().map(f=>({path:f.slice(gameRoot.length+1),sha256:digest(readFileSync(f))})));
-    if(sourceHash!==runtime.source_hash)throw Error('Runtime source changed; rebuild runtime exports before publishing');
+    if(build.runtime_hash&&runtime.hash!==build.runtime_hash)throw Error('Pinned runtime manifest identity mismatch');
+    for(const artifact of runtime.artifacts){const bytes=readFileSync(join(this.root,'.local/artifacts',runtime.hash,artifact.path));if(bytes.length!==artifact.bytes||digest(bytes)!==artifact.sha256)throw Error('Exported runtime artifact integrity failure');}
+    if(!build.runtime_hash&&sourceHash!==runtime.source_hash)throw Error('Runtime source changed; rebuild runtime exports before publishing');
     const binary=join(this.root,'.local/artifacts',runtime.hash,runtime.authority_binary);
     const result=await new Promise((resolve,reject)=>{
       const child=spawn(binary,['--headless','--','--role=validate',`--content=${source}`],{stdio:['ignore','pipe','pipe']});
