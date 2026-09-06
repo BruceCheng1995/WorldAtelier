@@ -1,0 +1,23 @@
+{
+  "created_utc": "2026-09-06T17:14:21.944611+00:00",
+  "blender_binary": "/Applications/Blender.app/Contents/MacOS/Blender",
+  "blender_version": "5.2.1 LTS",
+  "blender_build_hash": "9e2066aef7ef",
+  "source_mode": "factory empty scene; original geometry authored by this script, no GLB or blend input",
+  "script": "/Users/chengzhi/Projects/WorldAtelier/.local/workspaces/godot/tools/godot-blender-pipeline.py",
+  "script_sha256": "6abe7a1e9abe5bc3d656b7ffb1886edc884f751df769ff951ea8af25e47cecb3",
+  "blend": "/Users/chengzhi/Projects/WorldAtelier/.local/workspaces/godot/runtimes/godot/assets/source/live_pipeline/sunforge_relay.blend",
+  "blend_sha256": "ce2a8533708a771bc1e5d92c3d7fc8289c9e0d318cbf436ae5d9973263a7c436",
+  "blend_bytes": 146147,
+  "glb": "/Users/chengzhi/Projects/WorldAtelier/.local/workspaces/godot/runtimes/godot/assets/source/live_pipeline/sunforge_relay.glb",
+  "glb_sha256": "d93538fb28fe43fbeb0026c4a7f1d3c51254d23e4287151881c35ea015ab8595",
+  "glb_bytes": 514052,
+  "blender_mesh_objects": 50,
+  "blender_vertices": 3694,
+  "gltf_meshes": 50,
+  "gltf_materials": 6,
+  "gltf_nodes": 50,
+  "gltf_animations": 0,
+  "animation_scope": "static architecture prop; original playable explorer has a separate 4-clip rig",
+  "visible_change": "three copper orbital halos, mint sunstone, amber stabilizer fins and physical yellow-black service plate"
+}
