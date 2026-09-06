@@ -12,7 +12,7 @@ const GOLD = Color("#edc789")
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	font = ThemeDB.fallback_font
+	font = load("res://assets/fonts/NotoSansSC.ttf")
 
 func panel(rect: Rect2, border: Color = Color("#456777"), fill: Color = Color(.025, .065, .105, .92)) -> void:
 	var style = StyleBoxFlat.new()

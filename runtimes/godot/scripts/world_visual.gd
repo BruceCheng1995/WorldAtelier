@@ -132,6 +132,7 @@ func crystal(parent: Node3D, pos: Vector3, size: float, color: Color) -> Node3D:
 func label(parent: Node3D, text: String, pos: Vector3, color: Color, font_size: int = 28) -> Label3D:
 	var node = Label3D.new()
 	node.text = text
+	node.font = load("res://assets/fonts/NotoSansSC.ttf")
 	node.position = pos
 	node.font_size = font_size
 	node.pixel_size = .015
@@ -548,24 +549,35 @@ func update_tasks(tasks: Array) -> void:
 			root.set_meta("status", status)
 			task_nodes[id] = root
 			root.position = objects[object_id].position
+			var def = objects[object_id].get_meta("definition")
+			var extent = maxf(1.2, float(def.get("radius", 1.2)) * float(def.get("scale", 1)))
+			var task_radius = maxf(2.7, extent + 1.3)
+			var task_height = maxf(4.4, 3.5 * float(def.get("scale", 1)) + 1.0)
 			var color = {"editing": Color("#ffbd58"), "testing": Color("#85bfff"), "delivered": Color("#8dffbd"), "failed": Color("#ff797c")}.get(status, Color("#ffbd58"))
-			ring(root, Vector3(0, .15, 0), 2.5, color, .09)
-			var orbit = ring(root, Vector3(0, .22, 0), 2.9, color, .035)
+			ring(root, Vector3(0, .19, 0), task_radius, color, .13)
+			var orbit = ring(root, Vector3(0, .30, 0), task_radius + .38, color, .055)
 			orbit.name = "MaintenanceOrbit"
 			if status in ["editing", "testing"]:
 				for i in range(4):
 					var marker = Node3D.new()
 					root.add_child(marker)
-					marker.position = Vector3(cos(i * PI / 2) * 2.8, .55, sin(i * PI / 2) * 2.8)
-					marker.rotation.y = -i * PI / 2
-					box(marker, Vector3.ZERO, Vector3(1.15, .62, .10), Color("#141b22"))
+					marker.position = Vector3(cos(i * PI / 2 + PI / 4) * (task_radius + .35), .78, sin(i * PI / 2 + PI / 4) * (task_radius + .35))
+					marker.rotation.y = -i * PI / 2 - PI / 4
+					marker.scale = Vector3.ONE * 1.35
+					box(marker, Vector3.ZERO, Vector3(1.15, .62, .15), Color("#080e16"))
 					for j in range(5):
-						var stripe = box(marker, Vector3((j - 2) * .23, 0, -.065), Vector3(.13, .64, .04), Color("#ffd04e") if j % 2 == 0 else Color("#e1a346"))
+						var stripe = box(marker, Vector3((j - 2) * .23, 0, -.10), Vector3(.13, .64, .04), Color("#ffd84e") if j % 2 == 0 else Color("#11151b"))
 						stripe.rotation.z = -.3
 					box(marker, Vector3(-.43, -.42, 0), Vector3(.07, .35, .1), Color("#5f6e75"))
 					box(marker, Vector3(.43, -.42, 0), Vector3(.07, .35, .1), Color("#5f6e75"))
 			var tag = status.to_upper() + " · " + str(task.get("author", "Collaborator"))
-			label(root, tag, Vector3(0, 4.4, 0), color, 25)
+			label(root, tag, Vector3(0, task_height, 0), color, 25)
+			if status in ["delivered", "failed"]:
+				label(root, "✓ 已交付" if status == "delivered" else "! 验证失败", Vector3(0, task_height - .55, 0), color, 31)
+			elif status == "editing":
+				label(root, "施工中 · " + str(task.get("title", "")).left(24), Vector3(0, task_height - .55, 0), color, 24)
+			else:
+				label(root, "测试中 · " + str(task.get("title", "")).left(24), Vector3(0, task_height - .55, 0), color, 24)
 		var node = task_nodes[id]
 		node.get_node("MaintenanceOrbit").rotation = Vector3(sin(time) * .035, time * .3, cos(time) * .035)
 	for id in task_nodes.keys():

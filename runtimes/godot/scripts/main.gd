@@ -41,6 +41,9 @@ var last_sequence = -1
 var pending_snapshot_ack: Dictionary = {}
 var captured = false
 var reported_runtime_fault = ""
+var authority_frozen = false
+var frozen_snapshot: Dictionary = {}
+var upgrade_target: Dictionary = {}
 
 func _ready() -> void:
 	# A single immutable GLB release may exceed the 64 KiB engine default.
@@ -143,6 +146,10 @@ func _process(delta: float) -> void:
 				if packet is Dictionary:
 					receive(packet)
 		elif status == WebSocketPeer.STATE_CLOSED:
+			if role == "authority":
+				printerr("AUTHORITY_DISCONNECTED; exiting without further simulation")
+				get_tree().quit(3)
+				return
 			if active or connection_status == "PREPARING EXPEDITION":
 				active = false
 				connection_status = "DISCONNECTED · REJOIN FROM PROJECT"
@@ -178,7 +185,7 @@ func _process(delta: float) -> void:
 		get_tree().quit()
 
 func _physics_process(delta: float) -> void:
-	if not initialized or not role in ["authority", "offline"]:
+	if not initialized or not role in ["authority", "offline"] or authority_frozen:
 		return
 	game.step(delta)
 	state = game.state
@@ -200,6 +207,8 @@ func _physics_process(delta: float) -> void:
 func receive(packet: Dictionary) -> void:
 	match str(packet.get("type", "")):
 		"init":
+			authority_frozen = false
+			frozen_snapshot = {}
 			world_id = packet.get("world_id", "")
 			epoch = int(packet.get("epoch", 0))
 			release_id = str(packet.get("release_id", ""))
@@ -211,20 +220,37 @@ func receive(packet: Dictionary) -> void:
 			content = game.content
 			state = game.state
 			initialized = true
-			send({"type": "ready", "release_id": release_id, "epoch": epoch})
+			send({"type": "ready", "release_id": release_id, "epoch": epoch, "state": game.snapshot()})
 			print("AUTHORITY_READY world=%s release=%s epoch=%s" % [world_id, release_id, epoch])
+		"freeze":
+			if role != "authority" or not initialized:
+				return
+			if not authority_frozen:
+				authority_frozen = true
+				frozen_snapshot = game.snapshot()
+			send({"type": "frozen", "request_id": packet.get("request_id", ""), "ok": true, "state": frozen_snapshot})
 		"join":
+			if authority_frozen:
+				return
 			game.join(str(packet.user_id), str(packet.get("name", "Explorer")))
 		"leave":
+			if authority_frozen:
+				return
 			game.leave(str(packet.get("user_id", "")))
 		"command":
 			if role != "authority" or not initialized:
+				return
+			if authority_frozen:
+				send({"type": "result", "request_id": packet.get("request_id", ""), "ok": false, "error": "world is frozen for runtime upgrade", "state": frozen_snapshot})
 				return
 			var result = game.command(str(packet.get("user_id", "")), str(packet.get("action", "")), packet.get("payload", {}))
 			result.merge({"type": "result", "request_id": packet.get("request_id", ""), "state": game.snapshot()})
 			send(result)
 		"apply_content":
 			if role != "authority":
+				return
+			if authority_frozen:
+				send({"type": "applied", "request_id": packet.get("request_id", ""), "ok": false, "error": "world is frozen for runtime upgrade", "release_id": release_id, "state": frozen_snapshot})
 				return
 			var error = Game.validate(packet.get("content"))
 			if error.is_empty():
@@ -234,7 +260,7 @@ func receive(packet: Dictionary) -> void:
 				release_id = str(packet.release_id)
 			send({"type": "applied", "request_id": packet.get("request_id", ""), "ok": error.is_empty(), "error": error, "release_id": release_id, "state": game.snapshot()})
 		"tasks":
-			if role == "authority":
+			if role == "authority" and not authority_frozen:
 				game.state.tasks = packet.get("tasks", []).duplicate(true)
 		"welcome":
 			user_id = str(packet.get("user_id", ""))
@@ -294,6 +320,16 @@ func receive(packet: Dictionary) -> void:
 		"ack":
 			if not packet.get("ok", false) and not str(packet.get("error", "")).contains("cooling"):
 				show_log(str(packet.get("error", "Action rejected")))
+		"runtime_upgrade":
+			active = false
+			pending_snapshot_ack = {}
+			upgrade_target = {"release_id": packet.get("release_id", ""), "epoch": packet.get("epoch", 0)}
+			connection_status = "CLIENT UPDATE READY · ENTER FROM PROJECT"
+			show_log("Matching client update is ready. Return to the project to enter.")
+			emit_telemetry()
+		"runtime_fault":
+			connection_status = "DEGRADED · LAST GOOD RULES"
+			show_log(str(packet.get("error", "Behavior recovered to last good rules")))
 		"revoked":
 			active = false
 			connection_status = "CONTROL TRANSFERRED"
@@ -399,6 +435,7 @@ func _on_browser_message(arguments: Array) -> void:
 func emit_telemetry() -> void:
 	var player = state.get("players", {}).get(user_id, {})
 	var packet = {"source": "world-atelier-game", "type": "telemetry", "world_id": world_id, "release_id": release_id, "epoch": epoch, "tick": state.get("tick", 0), "user_id": user_id, "active": active, "selected": player.get("selected", ""), "player": player, "sequence": last_sequence, "object_count": content.get("objects", []).size(), "enemy_count": content.get("enemies", []).size(), "tasks": state.get("tasks", []), "status": connection_status}
+	packet.upgrade_target = upgrade_target
 	packet.fps = Engine.get_frames_per_second()
 	packet.module_assets = state.get("module_assets", [])
 	packet.runtime_fault = state.get("runtime_fault", null)
