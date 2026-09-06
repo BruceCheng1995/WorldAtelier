@@ -430,9 +430,13 @@ func step_enemy(id: String, delta: float) -> void:
 		enemy.target_x = target.x
 		enemy.target_z = target.z
 		enemy.phase = 2 if enemy.kind == "boss" and enemy.hp < enemy.max_hp / 2 else 1
-		push_event("telegraph", pos, {"enemy_kind": enemy.kind, "target_x": target.x, "target_z": target.z, "duration": enemy.telegraph})
+		# Lock the exact dangerous area when the warning starts. Target movement or
+		# compatible content changes during windup must not move a promised boundary.
+		enemy.attack_area = enemy_attack_area(enemy)
+		var area = enemy.attack_area
+		push_event("telegraph", Vector2(area.x, area.z), {"enemy_id": id, "enemy_kind": enemy.kind, "phase": enemy.phase, "radius": area.radius, "duration": enemy.telegraph})
 
-func resolve_enemy_attack(enemy: Dictionary) -> void:
+func enemy_attack_area(enemy: Dictionary) -> Dictionary:
 	var origin = Vector2(enemy.x, enemy.z)
 	var radius = 3.4
 	if enemy.kind == "artillerist":
@@ -442,6 +446,14 @@ func resolve_enemy_attack(enemy: Dictionary) -> void:
 		radius = 4.5
 	elif enemy.kind == "boss":
 		radius = 8 if enemy.phase == 1 else 11
+	return {"x": origin.x, "z": origin.y, "radius": radius}
+
+func resolve_enemy_attack(enemy: Dictionary) -> void:
+	# Old saved windups may predate attack_area; only those use the migration fallback.
+	var area = enemy.get("attack_area", enemy_attack_area(enemy))
+	var origin = Vector2(area.x, area.z)
+	var radius = float(area.radius)
+	enemy.erase("attack_area")
 	push_event("enemy_attack", origin, {"enemy_kind": enemy.kind, "radius": radius})
 	for player in state.players.values():
 		if player.hp <= 0 or not player.get("online", false) or player.dash_until > state.world_time:

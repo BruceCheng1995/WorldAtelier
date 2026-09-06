@@ -614,11 +614,20 @@ func spawn_effect(event: Dictionary) -> void:
 			if kind == "player_hit":
 				screen_shake = .6
 		"telegraph":
-			duration = event.get("duration", .8)
-			radius = 3.4
-			if event.get("enemy_kind") == "boss":
-				radius = 8
+			duration = float(event.get("duration", .8)) - maxf(0, float(state.get("world_time", 0)) - float(event.get("time", 0)))
+			if duration <= 0:
+				root.queue_free()
+				return
+			radius = float(event.get("radius", 3.4))
+			if not event.has("radius"):
+				# Compatibility for a short-lived warning already in a 0.1.0 checkpoint.
+				var kind_before_upgrade = event.get("enemy_kind", "sentinel")
+				radius = {"artillerist": 3.2, "brute": 4.5, "boss": 11.0 if event.get("phase", 1) == 2 else 8.0}.get(kind_before_upgrade, 3.4)
+				if kind_before_upgrade == "artillerist":
+					root.position.x = event.get("target_x", event.x)
+					root.position.z = event.get("target_z", event.z)
 			ring(root, Vector3.ZERO, radius, Color("#ff7964"), .07)
+			root.set_meta("telegraph_area", {"x": root.position.x, "z": root.position.z, "radius": radius})
 			expand = false
 		"enemy_attack":
 			radius = event.get("radius", 3)
