@@ -6,7 +6,7 @@ import {digest} from '../services/control-plane/content.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const game=join(root,'runtimes/godot'),godot=process.env.GODOT_BIN??'/Applications/Godot.app/Contents/MacOS/Godot';
-function files(dir){return readdirSync(dir,{withFileTypes:true}).filter(e=>!['.godot','.git','build','exports'].includes(e.name)).flatMap(e=>e.isDirectory()?files(join(dir,e.name)): [join(dir,e.name)]);}
+function files(dir){return readdirSync(dir,{withFileTypes:true}).filter(e=>!['.godot','.git','.local','build','exports'].includes(e.name)).flatMap(e=>e.isDirectory()?files(join(dir,e.name)): [join(dir,e.name)]);}
 async function run(cmd,args){console.log(cmd===godot?'Godot '+args.filter(x=>!x.startsWith('/Users/')).join(' '):cmd);await new Promise((res,rej)=>{const p=spawn(cmd,args,{cwd:root,stdio:['ignore','pipe','pipe']});let output='';p.stdout.on('data',b=>output=(output+b).slice(-60000));p.stderr.on('data',b=>output=(output+b).slice(-60000));p.on('error',rej);p.on('exit',code=>{if(code!==0||/SCRIPT ERROR|Parse Error|Export failed/i.test(output))rej(Error(output));else res();});});}
 if(!existsSync(join(game,'project.godot')))throw Error('Godot project is not yet implemented');
 if(existsSync(join(root,'tools/godot-content.py')))await run('python3',[join(root,'tools/godot-content.py')]);

@@ -165,7 +165,7 @@ export class Builds {
     const gameRoot = join(this.root, "runtimes/godot");
     const files = (directory) =>
       readdirSync(directory, { withFileTypes: true })
-        .filter((e) => ![".godot", ".git", "build", "exports"].includes(e.name))
+        .filter((e) => ![".godot", ".git", ".local", "build", "exports"].includes(e.name))
         .flatMap((e) =>
           e.isDirectory()
             ? files(join(directory, e.name))

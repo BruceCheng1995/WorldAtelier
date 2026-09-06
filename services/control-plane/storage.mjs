@@ -18,6 +18,7 @@ export class Storage {
     );
   }
   get(kind, id) {
+    if (id === null || id === undefined) return null;
     const row = this.read.get(kind, id);
     return row ? JSON.parse(row.body) : null;
   }
