@@ -1,0 +1,15 @@
+{
+  "name": "world-atelier",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=24.0.0"},
+  "scripts": {
+    "start": "node services/control-plane/server.mjs",
+    "build:portal": "npm --prefix apps/portal run build",
+    "build:runtime": "node tools/build-runtime.mjs",
+    "test": "node --test tests/e2e/central.test.mjs"
+  },
+  "dependencies": {"ws": "^8.18.3"},
+  "devDependencies": {"@playwright/test": "^1.55.0"}
+}
