@@ -63,10 +63,23 @@ func _test_save() -> void:
 			child.object_color = Color(test_recipe.color)
 			child.solid = test_recipe.solid
 			child.display_name = test_recipe.name
+			EditorInterface.set_main_screen_editor("3D")
+			EditorInterface.get_selection().clear()
+			EditorInterface.get_selection().add_node(child)
+			EditorInterface.inspect_object(child)
 			EditorInterface.mark_scene_as_unsaved()
 			var result := EditorInterface.save_scene()
 			print("NATIVE_EDITOR_SCENE_SAVED ", result)
 			await get_tree().create_timer(0.6).timeout
+			if test_recipe.has("capture") and DisplayServer.get_name() != "headless":
+				var surface = EditorInterface.get_editor_viewport_3d(0).get_parent().get_parent().get_child(1)
+				surface.grab_focus()
+				var focus_key := InputEventKey.new()
+				focus_key.keycode = KEY_F
+				focus_key.pressed = true
+				Input.parse_input_event(focus_key)
+				await get_tree().create_timer(0.6).timeout
+				EditorInterface.get_base_control().get_viewport().get_texture().get_image().save_png(test_recipe.capture)
 			get_tree().quit(result)
 			return
 	push_error("Native scene edit recipe timed out")

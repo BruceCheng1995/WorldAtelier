@@ -55,11 +55,5 @@ func refresh() -> void:
 		body.add_child(shape)
 		body.set_meta("atelier_preview", true)
 		add_child(body, false, Node.INTERNAL_MODE_BACK)
-	var label := Label3D.new()
-	label.text = display_name + "\n" + stable_id
-	label.font_size = 32
-	label.pixel_size = 0.012
-	label.position.y = 2.0
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.set_meta("atelier_preview", true)
-	add_child(label, false, Node.INTERNAL_MODE_BACK)
+	# Stable IDs and names are shown in the native inspector/tree.
+	# Rendering labels for every scaled object obscures the actual 3D editor.
