@@ -1,5 +1,6 @@
 import {chromium,expect} from '@playwright/test'
 import assert from 'node:assert/strict'
+import {redactEvidence} from './evidence.mjs'
 import {mkdir,writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 const url=process.env.PORTAL_URL||'http://127.0.0.1:48934',evidence=resolve(process.env.PORTAL_EVIDENCE||'.local/web-upgrade-evidence')
@@ -36,6 +37,6 @@ try{
   const after=await until(async()=>{const w=(await api(owner,'/worlds/'+world.id)).world;return w.state.players[owner.user.id].x!==before.state.players[owner.user.id].x&&w.state.players[other.user.id].x!==before.state.players[other.user.id].x?w:null});
   assert.equal(after.release_id,nextBuild.release_id);assert.equal(after.state.players[owner.user.id].crystals,before.state.players[owner.user.id].crystals);assert.equal(after.state.players[other.user.id].crystals,before.state.players[other.user.id].crystals);
   await owner.page.screenshot({path:resolve(evidence,'owner-upgraded.png'),fullPage:true});await other.page.screenshot({path:resolve(evidence,'peer-upgraded.png'),fullPage:true});
-  for(const [name,client] of [['owner',owner],['peer',other]])await writeFile(resolve(evidence,name+'-telemetry.json'),JSON.stringify(await client.page.evaluate(()=>window.runtimeEvidence),null,2));
-  assert.deepEqual(errors,[]);checks.push('After both new clients are active, ordinary movement changes their distinct positions through the real authority and preserves both inventories');await writeFile(resolve(evidence,'report.json'),JSON.stringify({time:new Date().toISOString(),checks,project_id:projectId,world_id:world.id,old_runtime:oldRuntime,new_runtime:nextRuntime,before,after,downloads,responses,other_before_click:otherBeforeClick,errors,state:'passed'},null,2));console.log(JSON.stringify({passed:checks.length,evidence},null,2))
-}catch(error){if(owner)await owner.page.screenshot({path:resolve(evidence,'failure-owner.png'),fullPage:true});if(other)await other.page.screenshot({path:resolve(evidence,'failure-peer.png'),fullPage:true});await writeFile(resolve(evidence,'failure.txt'),error.stack);throw error}finally{await browser.close()}
+  for(const [name,client] of [['owner',owner],['peer',other]])await writeFile(resolve(evidence,name+'-telemetry.json'),JSON.stringify(redactEvidence(await client.page.evaluate(()=>window.runtimeEvidence)),null,2));
+  assert.deepEqual(errors,[]);checks.push('After both new clients are active, ordinary movement changes their distinct positions through the real authority and preserves both inventories');await writeFile(resolve(evidence,'report.json'),JSON.stringify(redactEvidence({time:new Date().toISOString(),checks,project_id:projectId,world_id:world.id,old_runtime:oldRuntime,new_runtime:nextRuntime,before,after,downloads,responses,other_before_click:otherBeforeClick,errors,state:'passed'}),null,2));console.log(JSON.stringify({passed:checks.length,evidence},null,2))
+}catch(error){if(owner)await owner.page.screenshot({path:resolve(evidence,'failure-owner.png'),fullPage:true});if(other)await other.page.screenshot({path:resolve(evidence,'failure-peer.png'),fullPage:true});await writeFile(resolve(evidence,'failure.txt'),redactEvidence(error.stack));throw error}finally{await browser.close()}
