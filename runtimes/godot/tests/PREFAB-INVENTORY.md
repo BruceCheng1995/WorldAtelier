@@ -61,7 +61,7 @@ Godot --path runtimes/godot /absolute/generated/object-starheart.tscn -- --play
 Godot --path runtimes/godot /absolute/generated/system-editing.tscn -- --capture=/absolute/editing.png --quit-after-seconds=1
 ```
 
-The verifier actually loads and instantiates every generated `PackedScene`; it does not validate JSON alone. `--render` captures one representative scene for each of the 15 object kinds, five enemy kinds and 16 systems (36 images). `--inventory=/absolute/generated/inventory.json` selects an isolated generator output. Individual assertions record their outcome in `prefab-report.json`; parse/initialization failures cannot count as a completed fixture.
+The verifier actually loads and instantiates every generated `PackedScene`; it does not validate JSON alone. `--render` captures one representative scene for each of the 15 object kinds, five enemy kinds and 16 systems (36 images). `--inventory=/absolute/generated/inventory.json` selects an isolated generator output. Individual assertions record their outcome in `prefab-report.json`; completion is marked only at the end of all assertions. A runner-level Godot Logger makes any non-warning engine/VM error a hard failure, even if a broken fixture itself reports success. Independent acceptance should also inspect process stderr for `SCRIPT ERROR`, `Parse Error` or unexpected `ERROR:` and verify the full expected ID set.
 
 These developer fixtures use the Godot editor executable. Official release templates do not expose arbitrary external `--script`; packaged release, central service and Web tests have separate runners. The optional scene input controls are WASD/arrows, Space attack, Shift dash, E interact and Q upgrade.
 

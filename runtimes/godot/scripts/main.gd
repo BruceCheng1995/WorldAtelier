@@ -46,6 +46,10 @@ var authority_frozen = false
 var frozen_snapshot: Dictionary = {}
 var upgrade_target: Dictionary = {}
 var quitting = false
+var attack_pending_id = ""
+var attack_wait_sequence = -1
+var attack_gate_until = 0.0
+var next_attack_at = 0.0
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
@@ -290,6 +294,8 @@ func receive(packet: Dictionary) -> void:
 			send({"type": "loaded", "release_id": release_id})
 		"active":
 			active = true
+			attack_pending_id = ""
+			attack_wait_sequence = -1
 			epoch = int(packet.get("epoch", epoch))
 			control_generation = int(packet.get("control_generation", control_generation))
 			release_id = str(packet.get("release_id", release_id))
@@ -322,6 +328,11 @@ func receive(packet: Dictionary) -> void:
 			send({"type": "loaded", "release_id": release_id})
 			show_log("WORLD UPDATED · your expedition continues")
 		"ack":
+			if str(packet.get("request_id", "")) == attack_pending_id:
+				attack_pending_id = ""
+				attack_wait_sequence = int(packet.get("sequence", -1)) if packet.get("ok", false) else -1
+				if not packet.get("ok", false):
+					next_attack_at = maxf(next_attack_at, elapsed + .1)
 			if not packet.get("ok", false) and not str(packet.get("error", "")).contains("cooling"):
 				show_log(str(packet.get("error", "Action rejected")))
 		"runtime_upgrade":
@@ -339,6 +350,10 @@ func receive(packet: Dictionary) -> void:
 			connection_status = "CONTROL TRANSFERRED"
 			show_log(str(packet.get("reason", "This session is now read-only")))
 		"error":
+			if str(packet.get("request_id", "")) == attack_pending_id:
+				attack_pending_id = ""
+				attack_wait_sequence = -1
+				next_attack_at = maxf(next_attack_at, elapsed + .15)
 			if packet.get("recoverable", false):
 				show_log(str(packet.get("error", "Command rejected")))
 			else:
@@ -351,6 +366,15 @@ func send(packet: Dictionary) -> void:
 func issue_command(action: String, payload: Dictionary = {}) -> void:
 	if not active:
 		return
+	if action == "attack":
+		# A 10 Hz cooldown snapshot can remain zero for several rendered frames.
+		# Wait for this attempt's ACK and consumed snapshot before trying again.
+		# A bounded timeout/backoff recovers from a lost ACK without flooding.
+		if elapsed < next_attack_at:
+			return
+		if elapsed < attack_gate_until and (not attack_pending_id.is_empty() or attack_wait_sequence > last_sequence):
+			return
+		next_attack_at = elapsed + .05
 	if soundscape and action != "move":
 		soundscape.activate()
 	request_serial += 1
@@ -361,7 +385,12 @@ func issue_command(action: String, payload: Dictionary = {}) -> void:
 		if action != "move":
 			save_offline()
 	else:
-		send({"type": "command", "request_id": "g-" + session_nonce + "-" + str(request_serial), "epoch": epoch, "release_id": release_id, "control_generation": control_generation, "action": action, "payload": payload})
+		var request_id = "g-" + session_nonce + "-" + str(request_serial)
+		if action == "attack":
+			attack_pending_id = request_id
+			attack_wait_sequence = -1
+			attack_gate_until = elapsed + .75
+		send({"type": "command", "request_id": request_id, "epoch": epoch, "release_id": release_id, "control_generation": control_generation, "action": action, "payload": payload})
 
 func process_controls(delta: float) -> void:
 	var direction = Vector2.ZERO

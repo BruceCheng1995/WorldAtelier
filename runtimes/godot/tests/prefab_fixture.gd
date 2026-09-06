@@ -46,7 +46,6 @@ func _ready() -> void:
 	visual.update_world(game.snapshot(),user_id,1.0/30)
 	visual.update_world(game.snapshot(),user_id,.1)
 	verify()
-	result.completed=true
 	if DisplayServer.get_name() != "headless":
 		var canvas=CanvasLayer.new();var caption=Label.new()
 		caption.position=Vector2(24,22)
@@ -150,6 +149,7 @@ func verify() -> void:
 				var candidate=fixture.content.duplicate(true);candidate.asset_blobs.values()[0].data_base64="YmFk"
 				check(not test.apply_content(candidate).is_empty(),"corrupt immutable asset is rejected by authority")
 				check(not visual.build_world(candidate).is_empty() and visual.objects[subject]==node,"corrupt GLB retains previous rendered scene instance")
+	result.completed=true # Only reached after the entire verifier returns normally.
 func _physics_process(delta: float) -> void:
 	if not playing:return
 	var direction=Vector2(Input.get_axis("ui_left","ui_right"),Input.get_axis("ui_up","ui_down"))
