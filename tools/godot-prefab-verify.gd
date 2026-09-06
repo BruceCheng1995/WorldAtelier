@@ -1,5 +1,5 @@
 extends SceneTree
-var inventory_path="res://.local/prefab-scenes/inventory.json"
+var inventory_path="res://../../.local/prefab-scenes/inventory.json"
 var report_dir=""
 var render=false
 var results: Array=[]

@@ -1,6 +1,6 @@
 # Independent prefab and system scenes
 
-`python3 tools/godot-prefab-scenes.py` generates **290 independently loadable `.tscn` scenes** and their fixture content under `runtimes/godot/.local/prefab-scenes/`. An optional `--output=/absolute/path` isolates another run. Every scene is a real `Node3D` with the same `ExpeditionState`, procedural prefab builder and GLB importer used by the game. The generated `inventory.json` maps each authored ID to its exact scene and records the source content SHA256.
+`python3 tools/godot-prefab-scenes.py` generates **290 independently loadable `.tscn` scenes** and their fixture content under the project root’s `.local/prefab-scenes/`. An optional `--output=/absolute/path` isolates another run. Every scene is a real `Node3D` with the same `ExpeditionState`, procedural prefab builder and GLB importer used by the game. The generated `inventory.json` maps each authored ID to its exact scene and records the source content SHA256.
 
 The current map contains **227 authored objects across 14 placed kinds**. The runtime supports **15 object kinds**, so an additional standalone platform fixture covers the supported kind that is currently unplaced. All **46 authored enemies** get their own scene. These are followed by **16 system scenes**, including model binding as a separate resource system, not an invented object kind.
 

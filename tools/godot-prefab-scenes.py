@@ -3,7 +3,7 @@ Outputs go to an ignored directory; runtime source and live state are untouched.
 """
 import argparse, pathlib, json, copy, hashlib, base64, collections
 repo=pathlib.Path(__file__).resolve().parents[1]
-parser=argparse.ArgumentParser();parser.add_argument('--output',type=pathlib.Path,default=repo/'runtimes/godot/.local/prefab-scenes');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--output',type=pathlib.Path,default=repo/'.local/prefab-scenes');args=parser.parse_args()
 output=args.output.resolve();output.mkdir(parents=True,exist_ok=True)
 world=json.loads((repo/'content/world.json').read_text());items=[]
 
