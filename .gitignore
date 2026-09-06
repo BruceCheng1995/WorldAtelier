@@ -1,0 +1,13 @@
+.local/
+node_modules/
+.godot/
+dist/
+build/
+artifacts/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+research/godot/4.6-stable/source/
+research/godot/4.6-stable/*.tar.gz

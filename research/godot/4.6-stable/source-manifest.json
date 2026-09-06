@@ -1,0 +1,136 @@
+{
+  "retrievedDate": "2026-09-06",
+  "officialRepository": "https://github.com/godotengine/godot",
+  "tag": "4.6-stable",
+  "commit": "89cea143987d564363e15d207438530651d943ac",
+  "tagVerifiedBy": "git ls-remote official repository refs/tags/4.6-stable",
+  "archiveUrl": "https://codeload.github.com/godotengine/godot/tar.gz/89cea143987d564363e15d207438530651d943ac",
+  "archiveBytes": 65700229,
+  "archiveSha256": "4387f22b1ef3ad9efd34ba0cd8075b0c3f192ddb3fc2ad7e400c9c44145900ad",
+  "installedVersion": "4.6.stable.official.89cea1439",
+  "sourceModified": false,
+  "engineCompiledOrInstalledThisTurn": false,
+  "sourceFilesReferencedInReport": {
+    "SConstruct": {
+      "sha256": "f5db377344d1a4c5e4df3806aadf0407061edeef91a6e4cfb1f2fb43a8a41925",
+      "lines": 1235
+    },
+    "core/config/project_settings.cpp": {
+      "sha256": "03fb8c07370c429586b7573826a2877ef52165cba2ad9cd828baeb23c84e1e48",
+      "lines": 1888
+    },
+    "core/core_bind.cpp": {
+      "sha256": "ccf75037011effaa9f49b18906d232b0aac718b47348ae9b540258774e7d6c56",
+      "lines": 2330
+    },
+    "core/debugger/remote_debugger.cpp": {
+      "sha256": "147b5682ad46cc6342f0bce83052a4f528c0d7f27cbaa07444a06e8bc7dc5bfd",
+      "lines": 793
+    },
+    "core/extension/gdextension_manager.cpp": {
+      "sha256": "dd0e6a6185c934ccbf26f6d4bb302b2acb78a0fd89a6ab9b1d7ea039f4758b79",
+      "lines": 500
+    },
+    "core/io/file_access_pack.cpp": {
+      "sha256": "bd950795fee2c0aa144c165d0e8931aa44d8cc81a45b4eb3ec43e0ba06edcbd1",
+      "lines": 711
+    },
+    "core/io/resource_loader.cpp": {
+      "sha256": "08e5a8a5b77d4e9e430a0da90bcbab4677f8b540b07cb2b3e8b7abcf5bb6a6bf",
+      "lines": 1590
+    },
+    "core/object/message_queue.cpp": {
+      "sha256": "7fc67521b46e1e94003cd60ec0a4909bcda910f91301fdd78823cfe9f49ab1ac",
+      "lines": 516
+    },
+    "core/object/object.cpp": {
+      "sha256": "c30136c7f3b8f2d21870a5c2d497ab97fff1b0b5a9fba136542a718cb3d6241e",
+      "lines": 2681
+    },
+    "doc/classes/Logger.xml": {
+      "sha256": "9df4d87eb1206eb1164f0aa5fada1bd08ce63bc8f9438cb1dbd101fd12faa201",
+      "lines": 56
+    },
+    "main/main.cpp": {
+      "sha256": "248f7e34fbe5aa3a65275420264af33cca7d29e0ce353120a90b9aaf23e8927c",
+      "lines": 5267
+    },
+    "modules/gdscript/gdscript.cpp": {
+      "sha256": "50fc24214fef2e3f212b42cbe333f44cd4cb43b6be4f14772a6df9fbfd1e55f3",
+      "lines": 3043
+    },
+    "modules/gdscript/gdscript_compiler.cpp": {
+      "sha256": "5a87c77b8a976d400a71300818e9ea14a575d42701e2dd1e5944611862021641",
+      "lines": 3356
+    },
+    "modules/gdscript/gdscript_function.cpp": {
+      "sha256": "97503452fc095ee9a38f1e629ba56851964fb55fcd901444e001689b3e7afce9",
+      "lines": 281
+    },
+    "modules/gdscript/gdscript_tokenizer_buffer.cpp": {
+      "sha256": "fda113add1b1d703bb5ace55f5055c594ddbfb7fd82b181b6a249409da79feba",
+      "lines": 491
+    },
+    "modules/gdscript/gdscript_vm.cpp": {
+      "sha256": "e32c8d1cdf1cc294a185d46f5609f1320061a9f708109b880c9c04e6b0d2afa1",
+      "lines": 4028
+    },
+    "modules/gltf/gltf_document.cpp": {
+      "sha256": "a33185acc304524e99302244a652c295e9f201fcf9e8269223ea2e8df6fe803e",
+      "lines": 7243
+    },
+    "modules/gltf/register_types.cpp": {
+      "sha256": "b47792ccd2e7daf916c87ace2cb9fac9ba795b38dcc1788f80ed26d5be045e45",
+      "lines": 165
+    },
+    "modules/godot_physics_3d/godot_physics_server_3d.cpp": {
+      "sha256": "3d0abb21d322589d7f6ffa5850e3a3ac75897ce66559a747e2297d15a721fe83",
+      "lines": 1816
+    },
+    "modules/jolt_physics/jolt_physics_server_3d.cpp": {
+      "sha256": "7895d48e79bc362733818b9ee5283d9466cdca8c01ca6b17920608fd58788a59",
+      "lines": 2020
+    },
+    "scene/3d/physics/area_3d.cpp": {
+      "sha256": "c06cd883374345281c3b69fbe179bfe8d067a45b12a4acdf03d619194529c986",
+      "lines": 826
+    },
+    "scene/3d/physics/collision_object_3d.cpp": {
+      "sha256": "f7bf88e4e5b33c593ddd79256888000d9e20d4f014f4b4a3763ca02b25c76e17",
+      "lines": 762
+    },
+    "scene/3d/physics/collision_shape_3d.cpp": {
+      "sha256": "614086c0127df4af6c922aed8110f57434cc2fe19f00e48a06fe39e00a107b5e",
+      "lines": 330
+    },
+    "scene/debugger/scene_debugger.cpp": {
+      "sha256": "1bed9666a66dddf811d44700ab7a080eafd3c009c763f54a2d8a28335a14bc53",
+      "lines": 3118
+    },
+    "scene/main/node.cpp": {
+      "sha256": "925a1e180fd32c4ba7a937a5cf1e9fae46a7deea7ba190e5f32e5d7dccb3d5d1",
+      "lines": 4267
+    },
+    "scene/main/scene_tree.cpp": {
+      "sha256": "ff390847c015422bfdb1f4401bc393ddedb1d04f327cc320e298ba700bbd8394",
+      "lines": 2231
+    },
+    "scene/resources/packed_scene.cpp": {
+      "sha256": "ece7b1f7d867b60ec40e6d4a4ff30bba6a0649cb9edb3d80ed8e7a52f7b13127",
+      "lines": 2629
+    },
+    "scene/resources/resource_format_text.cpp": {
+      "sha256": "dc54a3e2c83e526d0907cfefab4e774b27d170e051f6085ab3de11fd63a0c62d",
+      "lines": 2236
+    },
+    "servers/physics_3d/physics_server_3d_wrap_mt.h": {
+      "sha256": "1abd43eb7b0bdb54e71dac7e5fa1edc44d1d333f850bdd32a92fdb82ea7c9af2",
+      "lines": 431
+    },
+    "servers/server_wrap_mt_common.h": {
+      "sha256": "f3df7c990c17091376cf03ad59f0e219835606bb12af3f6869acd862e1e11f31",
+      "lines": 811
+    }
+  },
+  "sourceAnchorCount": 50
+}
