@@ -387,6 +387,9 @@ func update_world(new_state: Dictionary, local_user: String, delta: float) -> vo
 		if not player_nodes.has(id):
 			player_nodes[id] = actor(true, "", Color("#8cfff0") if id == local_user else Color("#e3bdff"))
 		var node = player_nodes[id]
+		if not player.get("online", false):
+			node.visible = false
+			continue
 		var desired = Vector3(player.x, 0, player.z)
 		var distance = node.position.distance_to(desired)
 		if distance > 16:

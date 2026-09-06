@@ -45,6 +45,9 @@ func _draw() -> void:
 	var h = get_viewport_rect().size.y
 	var state = game_root.state
 	var player = state.get("players", {}).get(game_root.user_id, {})
+	var online_count = 0
+	for p in state.get("players", {}).values():
+		if p.get("online", false): online_count += 1
 	var small = w < 1000
 	# Header is quiet and compact so the world stays the main surface.
 	panel(Rect2(24, 22, 352 if not small else 290, 99))
@@ -146,12 +149,14 @@ func _draw() -> void:
 			draw_circle(pos, 3, MINT if state.get("objects", {}).get(object.id, {}).get("activated", false) else GOLD)
 	for id in state.get("players", {}):
 		var p = state.players[id]
+		if not p.get("online", false):
+			continue
 		var pos = origin + Vector2(p.x, p.z) * scale
 		draw_circle(pos, 4.5 if id == game_root.user_id else 3.5, CREAM if id == game_root.user_id else Color("#d6afff"))
 	for enemy in state.get("enemies", {}).values():
 		if enemy.get("kind") == "boss" and enemy.get("hp", 0) > 0:
 			draw_circle(origin + Vector2(enemy.x, enemy.z) * scale, 4, Color("#f69b8e"))
-	text(str(state.get("players", {}).size()) + " EXPLORERS CONNECTED", Vector2(w - map_size - 20, h - 133), 9, MUTED)
+	text(str(online_count) + " EXPLORERS CONNECTED", Vector2(w - map_size - 20, h - 133), 9, MUTED)
 	# Feed messages and final objective reward are authority backed.
 	if game_root.log_until > game_root.elapsed:
 		var message = str(game_root.log_message).left(94)

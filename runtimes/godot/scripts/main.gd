@@ -39,6 +39,7 @@ var log_message = "WASD to explore · E to interact · Space to strike · Shift 
 var log_until = 9.0
 var last_sequence = -1
 var captured = false
+var reported_runtime_fault = ""
 
 func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -61,6 +62,8 @@ func _ready() -> void:
 			game.command("validation-explorer", "move", {"x": 0, "z": 0})
 			for i in range(6):
 				game.step(1.0 / 30)
+			if game.state.has("runtime_fault"):
+				error = game.state.runtime_fault.error
 		if not error.is_empty():
 			printerr("CONTENT_REJECTED: " + error)
 			get_tree().quit(2)
@@ -172,6 +175,11 @@ func _physics_process(delta: float) -> void:
 		return
 	game.step(delta)
 	state = game.state
+	if role == "authority" and state.has("runtime_fault"):
+		var fault_key = JSON.stringify(state.runtime_fault)
+		if reported_runtime_fault != fault_key:
+			reported_runtime_fault = fault_key
+			send({"type": "runtime_fault", "release_id": release_id, "error": state.runtime_fault.error, "fault": state.runtime_fault, "state": game.snapshot()})
 	snapshot_clock += delta
 	if snapshot_clock >= .1:
 		snapshot_clock = 0
@@ -200,6 +208,8 @@ func receive(packet: Dictionary) -> void:
 			print("AUTHORITY_READY world=%s release=%s epoch=%s" % [world_id, release_id, epoch])
 		"join":
 			game.join(str(packet.user_id), str(packet.get("name", "Explorer")))
+		"leave":
+			game.leave(str(packet.get("user_id", "")))
 		"command":
 			if role != "authority" or not initialized:
 				return

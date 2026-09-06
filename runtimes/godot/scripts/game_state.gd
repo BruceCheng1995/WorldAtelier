@@ -1,6 +1,13 @@
 class_name ExpeditionState
 extends RefCounted
 const Assets = preload("res://scripts/live_assets.gd")
+const LiveModules = preload("res://scripts/live_modules.gd")
+var module_manager = LiveModules.new()
+var previous_module_manager: RefCounted
+var module_base_rules: Dictionary = {}
+var previous_base_rules: Dictionary = {}
+var effective_rules: Dictionary = {}
+var module_disabled = false
 
 var content: Dictionary = {}
 var state: Dictionary = {}
@@ -92,13 +99,18 @@ static func valid_id(value: Variant) -> bool:
 static func valid_color(value: Variant) -> bool:
 	return value is String and value.length() <= 16 and Color.html_is_valid(value)
 
-func initialize(candidate: Dictionary, saved: Variant = null) -> String:
+func initialize(candidate: Dictionary, saved: Variant = null, preserve_presence: bool = false) -> String:
 	var error = validate(candidate)
 	if not error.is_empty():
 		return error
 	var prepared_assets = Assets.prepare(candidate)
 	if not prepared_assets.ok:
 		return prepared_assets.error
+	var module_error = module_manager.prepare(candidate)
+	if not module_error.is_empty():
+		return module_error
+	module_base_rules = candidate.rules.duplicate(true)
+	effective_rules = module_manager.last_good.duplicate(true)
 	content = candidate.duplicate(true)
 	state = {"schema": 1, "tick": 0, "world_time": 0.0, "players": {}, "enemies": {}, "objects": {}, "events": [], "tasks": [], "objectives": {"beacons": 0, "boss_defeated": false}, "event_serial": 0}
 	if saved is Dictionary and saved.get("schema", 1) == 1:
@@ -107,6 +119,11 @@ func initialize(candidate: Dictionary, saved: Variant = null) -> String:
 				state[key] = saved[key]
 		event_serial = int(state.get("event_serial", 0))
 	reconcile_content()
+	for player in state.players.values():
+		if not preserve_presence:
+			player.online = false
+	if not refresh_rules("initialize"):
+		return state.runtime_fault.error
 	if not is_walkable(Vector2(content.spawn.x, content.spawn.z)):
 		return "spawn must be on traversable land and clear of solid objects"
 	return ""
@@ -147,9 +164,15 @@ func apply_content(candidate: Dictionary) -> String:
 	# Candidate state/resources are isolated. The active world is only exchanged after
 	# complete initialization and migration, at this main-thread frame boundary.
 	var prepared = get_script().new()
-	error = prepared.initialize(candidate, snapshot())
+	error = prepared.initialize(candidate, snapshot(), true)
 	if not error.is_empty():
 		return error
+	previous_module_manager = module_manager
+	previous_base_rules = module_base_rules
+	module_manager = prepared.module_manager
+	module_base_rules = prepared.module_base_rules
+	effective_rules = prepared.effective_rules
+	module_disabled = false
 	content = prepared.content
 	state = prepared.state
 	object_defs = prepared.object_defs
@@ -161,8 +184,9 @@ func apply_content(candidate: Dictionary) -> String:
 func join(user_id: String, player_name: String) -> void:
 	if state.players.has(user_id):
 		state.players[user_id].name = player_name.left(40)
+		state.players[user_id].online = true
 		return
-	state.players[user_id] = {"name": player_name.left(40), "x": content.spawn.x, "z": content.spawn.z, "hp": 100, "max_hp": 100, "stamina": 100.0, "crystals": 0, "collected": 0, "level": 1, "kills": 0, "quest_stage": 0, "facing_x": 0.0, "facing_z": -1.0, "attack_until": 0.0, "dash_until": 0.0, "attack_cooldown": 0.0, "dash_cooldown": 0.0, "selected": "", "respawn_at": 0.0, "upgrades": 0}
+	state.players[user_id] = {"online": true, "name": player_name.left(40), "x": content.spawn.x, "z": content.spawn.z, "hp": 100, "max_hp": 100, "stamina": 100.0, "crystals": 0, "collected": 0, "level": 1, "kills": 0, "quest_stage": 0, "facing_x": 0.0, "facing_z": -1.0, "attack_until": 0.0, "dash_until": 0.0, "attack_cooldown": 0.0, "dash_cooldown": 0.0, "selected": "", "respawn_at": 0.0, "upgrades": 0}
 	push_event("join", Vector2(content.spawn.x, content.spawn.z), {"name": player_name})
 
 func command(user_id: String, action: String, payload: Variant) -> Dictionary:
@@ -171,6 +195,9 @@ func command(user_id: String, action: String, payload: Variant) -> Dictionary:
 	if not payload is Dictionary:
 		return {"ok": false, "error": "invalid payload"}
 	var player = state.players[user_id]
+	if not player.get("online", false):
+		return {"ok": false, "error": "player is not connected"}
+	refresh_rules(action)
 	if action == "select":
 		var selected = str(payload.get("object_id", ""))
 		if not selected.is_empty() and not object_defs.has(selected):
@@ -191,18 +218,18 @@ func command(user_id: String, action: String, payload: Variant) -> Dictionary:
 		"attack":
 			if player.attack_cooldown > 0:
 				return {"ok": false, "error": "attack cooling down"}
-			player.attack_cooldown = content.rules.get("attack_cooldown", .38)
+			player.attack_cooldown = effective_rules.get("attack_cooldown", .38)
 			player.attack_until = state.world_time + .22
 			var pos = Vector2(player.x, player.z)
 			push_event("slash", pos, {"user_id": user_id, "fx": player.facing_x, "fz": player.facing_z})
 			for id in enemy_defs:
 				var enemy = state.enemies[id]
 				var offset = Vector2(enemy.x, enemy.z) - pos
-				if enemy.hp <= 0 or offset.length() > content.rules.get("attack_range", 4.5):
+				if enemy.hp <= 0 or offset.length() > effective_rules.get("attack_range", 4.5):
 					continue
 				if offset.length() > 1.2 and offset.normalized().dot(Vector2(player.facing_x, player.facing_z)) < -.25:
 					continue
-				var damage = int(content.rules.attack_damage + player.upgrades * 9)
+				var damage = int(effective_rules.attack_damage + player.upgrades * 9)
 				enemy.hp = maxf(0, enemy.hp - damage)
 				push_event("hit", Vector2(enemy.x, enemy.z), {"damage": damage, "enemy_kind": enemy.kind})
 				if enemy.hp <= 0:
@@ -219,7 +246,7 @@ func command(user_id: String, action: String, payload: Variant) -> Dictionary:
 			if player.dash_cooldown > 0 or player.stamina < 28:
 				return {"ok": false, "error": "dash not ready"}
 			player.stamina -= 28
-			player.dash_cooldown = content.rules.get("dash_cooldown", 1.1)
+			player.dash_cooldown = effective_rules.get("dash_cooldown", 1.1)
 			player.dash_until = state.world_time + .22
 			push_event("dash", Vector2(player.x, player.z), {"user_id": user_id})
 		"interact":
@@ -310,10 +337,13 @@ func update_quests(player: Dictionary) -> void:
 		player.quest_stage = 3
 
 func step(delta: float) -> void:
+	refresh_rules("step")
 	state.tick += 1
 	state.world_time += delta
 	for user_id in state.players:
 		var player = state.players[user_id]
+		if not player.get("online", false):
+			continue
 		if player.hp <= 0:
 			if state.world_time >= player.respawn_at:
 				player.x = content.spawn.x
@@ -329,7 +359,7 @@ func step(delta: float) -> void:
 		var direction = Vector2.ZERO
 		if input.get("expires", 0) > state.world_time:
 			direction = Vector2(input.x, input.z)
-		var speed = content.rules.player_speed
+		var speed = effective_rules.player_speed
 		if player.dash_until > state.world_time:
 			direction = Vector2(player.facing_x, player.facing_z)
 			speed *= 3.0
@@ -360,7 +390,7 @@ func step_enemy(id: String, delta: float) -> void:
 	var pos = Vector2(enemy.x, enemy.z)
 	for uid in state.players:
 		var player = state.players[uid]
-		if player.hp <= 0:
+		if player.hp <= 0 or not player.get("online", false):
 			continue
 		var d = pos.distance_to(Vector2(player.x, player.z))
 		if d < distance:
@@ -414,11 +444,11 @@ func resolve_enemy_attack(enemy: Dictionary) -> void:
 		radius = 8 if enemy.phase == 1 else 11
 	push_event("enemy_attack", origin, {"enemy_kind": enemy.kind, "radius": radius})
 	for player in state.players.values():
-		if player.hp <= 0 or player.dash_until > state.world_time:
+		if player.hp <= 0 or not player.get("online", false) or player.dash_until > state.world_time:
 			continue
 		if Vector2(player.x, player.z).distance_to(origin) < radius:
 			var mult = {"sentinel": 1, "stalker": .8, "artillerist": 1.3, "brute": 1.8, "boss": 2.3}[enemy.kind]
-			var damage = int(content.rules.enemy_damage * mult)
+			var damage = int(effective_rules.enemy_damage * mult)
 			player.hp = maxf(0, player.hp - damage)
 			push_event("player_hit", Vector2(player.x, player.z), {"damage": damage})
 			if player.hp <= 0:
@@ -453,3 +483,40 @@ func push_event(kind: String, pos: Vector2, extra: Dictionary = {}) -> void:
 
 func snapshot() -> Dictionary:
 	return state.duplicate(true)
+
+func leave(user_id: String) -> void:
+	if state.players.has(user_id):
+		state.players[user_id].online = false
+	move_inputs.erase(user_id)
+
+func refresh_rules(action: String) -> bool:
+	if module_disabled:
+		return false
+	var online_count = 0
+	for player in state.get("players", {}).values():
+		if player.get("online", false):
+			online_count += 1
+	var context = {"rules": module_base_rules, "player_count": online_count, "world_time": state.get("world_time", 0), "action": action}
+	var result = module_manager.evaluate(context)
+	if result.ok:
+		effective_rules = result.rules
+		state.module_assets = module_manager.hashes.duplicate()
+		state.effective_rules = effective_rules.duplicate(true)
+		return true
+	state.runtime_fault = {"error": result.get("error", "module evaluation failed"), "asset_hash": result.get("asset_hash", ""), "tick": state.get("tick", 0), "action": action, "fallback": "last_good_rules"}
+	if previous_module_manager != null:
+		module_manager = previous_module_manager
+		module_base_rules = previous_base_rules
+		previous_module_manager = null
+		context.rules = module_base_rules
+		var fallback = module_manager.evaluate(context)
+		if fallback.ok:
+			effective_rules = fallback.rules
+			state.runtime_fault.fallback = "previous_module"
+		else:
+			module_disabled = true
+	else:
+		module_disabled = true
+	state.module_assets = module_manager.hashes.duplicate() if not module_disabled else []
+	state.effective_rules = effective_rules.duplicate(true)
+	return false
