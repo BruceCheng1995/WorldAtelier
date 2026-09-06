@@ -173,6 +173,7 @@ async function chooseBranch(name) {
 }
 async function loadContent({ ignoreDraft = false } = {}) {
   const request = ++contentRequest
+  const previousSelection = selectedId.value
   const key = draftKey.value
   const result = await api(`${branchPath()}/content`)
   if (request !== contentRequest || key !== draftKey.value) return
@@ -192,7 +193,7 @@ async function loadContent({ ignoreDraft = false } = {}) {
       if (JSON.stringify(saved.content) !== cleanContent.value) tell('已恢复此分支的本地草稿；基础版本仍然保留。')
     }
   } catch { /* A malformed local draft must not block loading server content. */ }
-  selectedId.value = content.value?.objects?.find(o => o.kind === 'beacon')?.id || content.value?.objects?.[0]?.id || ''
+  selectedId.value = content.value?.objects?.find(o => o.id === previousSelection)?.id || content.value?.objects?.find(o => o.kind === 'beacon')?.id || content.value?.objects?.[0]?.id || ''
   loadingContent = false
 }
 watch(content, () => {

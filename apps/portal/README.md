@@ -76,3 +76,5 @@ node apps/portal/tests/ui-smoke.mjs
 现场页面从受校验的当前 Godot iframe telemetry 冻结 `origin: live`、`observed_world_id`、`observed_release_id`。源码页批注发送 `origin: source` 与草稿基础提交；新对象需先提交。切换工程/分支会关闭旧批注上下文。现场版本改变时保留批注文本并显示错误，服务端重新验证通过之前不创建错误版本的批注。
 
 独立真实 UI 测试：启动最新中央服务到独立端口，再用 `WORLD_ATELIER_API` 启动本 Portal。运行 `PORTAL_URL=http://127.0.0.1:48934 PORTAL_EVIDENCE=/path/to/evidence node apps/portal/tests/object-history.mjs`。测试使用真实 Chrome、Godot Web、引擎构建与两个世界；不发送模拟 authority ACK。
+
+双 Web 客户端真实升级验收：`OLD_RUNTIME=<旧导出哈希> NEW_RUNTIME=<新导出哈希> PORTAL_URL=http://127.0.0.1:48934 PORTAL_EVIDENCE=/path/to/evidence node apps/portal/tests/web-upgrade.mjs`。它为两名真实用户建立同一旧版世界，分别取得资源，然后用真实新导出构建并从 UI 应用。发起升级的页面自动预下载/校验并更换 iframe；另一名玩家收到版本围栏后仍需点击“进入世界”。两人恢复后再通过正常移动输入验证权威写入与背包保留。自动接续的范围仅限发起操作的页面，不声称所有在线端都会静默升级。
