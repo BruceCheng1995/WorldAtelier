@@ -35,3 +35,11 @@ func update_state(state: Dictionary, user_id: String) -> void:
 		add_child(voice)
 		voice.finished.connect(voice.queue_free)
 		voice.play()
+
+func shutdown() -> void:
+	enabled = false
+	for child in get_children():
+		if child is AudioStreamPlayer:
+			child.stop()
+			child.stream = null
+	streams.clear()

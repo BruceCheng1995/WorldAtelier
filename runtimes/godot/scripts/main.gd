@@ -11,6 +11,7 @@ var hud: Control
 var socket = WebSocketPeer.new()
 var args: Dictionary = {}
 var role = "offline"
+var runtime_version = str(ProjectSettings.get_setting("application/config/version", "unversioned"))
 var content: Dictionary = {}
 var state: Dictionary = {}
 var user_id = "offline-explorer"
@@ -44,8 +45,10 @@ var reported_runtime_fault = ""
 var authority_frozen = false
 var frozen_snapshot: Dictionary = {}
 var upgrade_target: Dictionary = {}
+var quitting = false
 
 func _ready() -> void:
+	get_tree().auto_accept_quit = false
 	# A single immutable GLB release may exceed the 64 KiB engine default.
 	socket.inbound_buffer_size = 32 * 1024 * 1024
 	socket.outbound_buffer_size = 32 * 1024 * 1024
@@ -130,6 +133,8 @@ func load_json(path: String) -> Variant:
 	return JSON.parse_string(FileAccess.get_file_as_string(path))
 
 func _process(delta: float) -> void:
+	if quitting:
+		return
 	elapsed += delta
 	if role in ["client", "authority"]:
 		socket.poll()
@@ -181,8 +186,7 @@ func _process(delta: float) -> void:
 		captured = true
 		capture.call_deferred()
 	if args.has("quit-after-seconds") and elapsed >= float(args["quit-after-seconds"]):
-		save_offline()
-		get_tree().quit()
+		finish()
 
 func _physics_process(delta: float) -> void:
 	if not initialized or not role in ["authority", "offline"] or authority_frozen:
@@ -220,7 +224,7 @@ func receive(packet: Dictionary) -> void:
 			content = game.content
 			state = game.state
 			initialized = true
-			send({"type": "ready", "release_id": release_id, "epoch": epoch, "state": game.snapshot()})
+			send({"type": "ready", "release_id": release_id, "epoch": epoch, "state": game.snapshot(), "runtime_version": runtime_version})
 			print("AUTHORITY_READY world=%s release=%s epoch=%s" % [world_id, release_id, epoch])
 		"freeze":
 			if role != "authority" or not initialized:
@@ -335,7 +339,10 @@ func receive(packet: Dictionary) -> void:
 			connection_status = "CONTROL TRANSFERRED"
 			show_log(str(packet.get("reason", "This session is now read-only")))
 		"error":
-			fail(str(packet.get("error", "Connection error")))
+			if packet.get("recoverable", false):
+				show_log(str(packet.get("error", "Command rejected")))
+			else:
+				fail(str(packet.get("error", "Connection error")))
 
 func send(packet: Dictionary) -> void:
 	if socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
@@ -372,7 +379,7 @@ func process_controls(delta: float) -> void:
 	if external_move_until > elapsed:
 		direction = external_move
 	send_clock += delta
-	if send_clock > .09 or (direction == Vector2.ZERO and last_move != Vector2.ZERO):
+	if direction.distance_to(last_move) > .001 or (direction != Vector2.ZERO and send_clock > .09):
 		send_clock = 0
 		issue_command("move", {"x": direction.x, "z": direction.y})
 		last_move = direction
@@ -429,12 +436,18 @@ func _on_browser_message(arguments: Array) -> void:
 		if Game.number_between(payload.get("x"), -1, 1) and Game.number_between(payload.get("z"), -1, 1):
 			external_move = Vector2(payload.x, payload.z).limit_length(1)
 			external_move_until = elapsed + .35
-	if action in ["move", "attack", "dash", "interact", "select", "upgrade"]:
+		return # The regular control loop sends changes/keepalive once, avoiding duplicate move floods.
+	if action in ["attack", "dash", "interact", "select", "upgrade"]:
+		if external_move_until > elapsed and external_move.distance_to(last_move) > .001:
+			issue_command("move", {"x": external_move.x, "z": external_move.y})
+			last_move = external_move
+			send_clock = 0
 		issue_command(action, payload)
 
 func emit_telemetry() -> void:
 	var player = state.get("players", {}).get(user_id, {})
 	var packet = {"source": "world-atelier-game", "type": "telemetry", "world_id": world_id, "release_id": release_id, "epoch": epoch, "tick": state.get("tick", 0), "user_id": user_id, "active": active, "selected": player.get("selected", ""), "player": player, "sequence": last_sequence, "object_count": content.get("objects", []).size(), "enemy_count": content.get("enemies", []).size(), "tasks": state.get("tasks", []), "status": connection_status}
+	packet.runtime_version = runtime_version
 	packet.upgrade_target = upgrade_target
 	packet.fps = Engine.get_frames_per_second()
 	packet.module_assets = state.get("module_assets", [])
@@ -483,3 +496,19 @@ func capture() -> void:
 	var image = get_viewport().get_texture().get_image()
 	var error = image.save_png(str(args.capture))
 	print("CAPTURE_RESULT %s %s" % [error, args.capture])
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		finish()
+
+func finish() -> void:
+	if quitting:
+		return
+	quitting = true
+	active = false
+	save_offline()
+	if soundscape:
+		soundscape.shutdown()
+		# Give the audio mixer time to release streaming playback before teardown.
+		await get_tree().create_timer(.08).timeout
+	get_tree().quit()

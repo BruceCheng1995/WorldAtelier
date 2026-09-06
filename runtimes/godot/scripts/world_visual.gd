@@ -21,6 +21,7 @@ var selection: Node3D
 var camera_target = Vector3(0, 0, 6)
 var outline_shader: Shader
 var floor_shader: Shader
+var hazard_material: ShaderMaterial
 var effects_live: Array = []
 var screen_shake = 0.0
 
@@ -60,6 +61,10 @@ func _ready() -> void:
 	add_child(actors)
 	effects = Node3D.new()
 	add_child(effects)
+	var hazard_shader = Shader.new()
+	hazard_shader.code = "shader_type spatial; render_mode unshaded; void fragment(){float stripe=step(0.5,fract((UV.x+UV.y*0.6)*5.0));ALBEDO=mix(vec3(0.01,0.015,0.025),vec3(1.0,0.68,0.025),stripe);}"
+	hazard_material = ShaderMaterial.new()
+	hazard_material.shader = hazard_shader
 	floor_shader = Shader.new()
 	floor_shader.code = "shader_type spatial; uniform vec4 stone_color : source_color; uniform float grid_strength = 0.16; varying vec3 world_pos; void vertex(){world_pos=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;} void fragment(){vec2 p=world_pos.xz*0.48;vec2 cell=abs(fract(p)-0.5);float grout=smoothstep(0.475,0.495,max(cell.x,cell.y));float variety=sin(floor(p.x)*13.4+floor(p.y)*41.7)*0.045;ALBEDO=stone_color.rgb*(0.95+variety)*(1.0-grout*grid_strength);ROUGHNESS=0.94;}"
 	outline_shader = Shader.new()
@@ -132,13 +137,13 @@ func crystal(parent: Node3D, pos: Vector3, size: float, color: Color) -> Node3D:
 func label(parent: Node3D, text: String, pos: Vector3, color: Color, font_size: int = 28) -> Label3D:
 	var node = Label3D.new()
 	node.text = text
-	node.font = load("res://assets/fonts/NotoSansSC.ttf")
+	node.font = load("res://assets/fonts/AtelierUI.tres")
 	node.position = pos
-	node.font_size = font_size
-	node.pixel_size = .015
+	node.font_size = font_size * 2
+	node.pixel_size = .009
 	node.modulate = color
 	node.outline_modulate = Color("#081724")
-	node.outline_size = 8
+	node.outline_size = 4
 	node.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	node.no_depth_test = true
 	parent.add_child(node)
@@ -564,10 +569,8 @@ func update_tasks(tasks: Array) -> void:
 					marker.position = Vector3(cos(i * PI / 2 + PI / 4) * (task_radius + .35), .78, sin(i * PI / 2 + PI / 4) * (task_radius + .35))
 					marker.rotation.y = -i * PI / 2 - PI / 4
 					marker.scale = Vector3.ONE * 1.35
-					box(marker, Vector3.ZERO, Vector3(1.15, .62, .15), Color("#080e16"))
-					for j in range(5):
-						var stripe = box(marker, Vector3((j - 2) * .23, 0, -.10), Vector3(.13, .64, .04), Color("#ffd84e") if j % 2 == 0 else Color("#11151b"))
-						stripe.rotation.z = -.3
+					var plate = box(marker, Vector3.ZERO, Vector3(1.15, .62, .15), Color("#ffd84e"))
+					plate.material_override = hazard_material
 					box(marker, Vector3(-.43, -.42, 0), Vector3(.07, .35, .1), Color("#5f6e75"))
 					box(marker, Vector3(.43, -.42, 0), Vector3(.07, .35, .1), Color("#5f6e75"))
 			var tag = status.to_upper() + " · " + str(task.get("author", "Collaborator"))

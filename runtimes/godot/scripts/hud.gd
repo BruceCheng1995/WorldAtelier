@@ -12,7 +12,7 @@ const GOLD = Color("#edc789")
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	font = load("res://assets/fonts/NotoSansSC.ttf")
+	font = load("res://assets/fonts/AtelierUI.tres")
 
 func panel(rect: Rect2, border: Color = Color("#456777"), fill: Color = Color(.025, .065, .105, .92)) -> void:
 	var style = StyleBoxFlat.new()
@@ -23,7 +23,7 @@ func panel(rect: Rect2, border: Color = Color("#456777"), fill: Color = Color(.0
 	draw_style_box(style, rect)
 
 func text(value: String, pos: Vector2, size: int = 18, color: Color = CREAM) -> void:
-	draw_string(font, pos, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+	draw_string(font, pos, value, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(size * 1.12), color)
 
 func rule(a: Vector2, b: Vector2, color: Color = Color("#3b5766")) -> void:
 	draw_line(a, b, color, 1, true)
@@ -68,7 +68,7 @@ func _draw() -> void:
 				zone_id = zone.id
 		zone_name = {"observatory": "STARPORT OBSERVATORY", "gardens": "MOONDEW GARDENS", "foundry": "EMBER FOUNDRY", "citadel": "ASTRAL CITADEL"}.get(zone_id, "EXPEDITION ROUTE")
 	text(zone_name, Vector2(42, 148), 14, CREAM)
-	text("04 ISLANDS  /  ONE SHARED EXPEDITION", Vector2(42, 168), 10, MUTED)
+	text("04 ISLANDS  /  RUNTIME " + game_root.runtime_version, Vector2(42, 168), 10, MUTED)
 	# Expedition objectives: completed state comes only from authority.
 	var qx = w - (298 if not small else 242)
 	var qw = 274 if not small else 218
