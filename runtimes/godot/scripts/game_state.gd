@@ -39,6 +39,11 @@ static func validate(candidate: Variant) -> String:
 			return "duplicate object id or unknown zone: " + str(object.id)
 		if not object.get("kind") in ["beacon", "crystal", "supply", "gate", "forge", "monument", "tree", "rock", "pillar", "platform", "bridge", "lamp", "flower", "furnace", "arch"]:
 			return "unsupported object kind"
+		for key in ["solid", "interactable"]:
+			if object.has(key) and not object[key] is bool:
+				return "object " + key + " must be boolean"
+		if object.has("name") and (not object.name is String or object.name.length() > 160):
+			return "invalid object name"
 		if not number_between(object.get("scale", 1), 0.1, 8) or not valid_color(object.get("color", "#72dad2")):
 			return "invalid object scale/color: " + str(object.id)
 		for key in ["radius", "height", "length", "width"]:
@@ -64,6 +69,9 @@ static func validate(candidate: Variant) -> String:
 	for key in ["attack_range", "attack_cooldown", "dash_cooldown", "bounds"]:
 		if candidate.rules.has(key) and not number_between(candidate.rules[key], 0.05, 200):
 			return "invalid optional rule: " + key
+	for quest in candidate.quests:
+		if not quest is Dictionary or not valid_id(quest.get("id")) or not quest.get("title") is String or not quest.get("description") is String or not number_between(quest.get("target"), 1, 100000):
+			return "invalid quest"
 	return ""
 
 static func number_between(value: Variant, low: float, high: float) -> bool:
@@ -95,6 +103,8 @@ func initialize(candidate: Dictionary, saved: Variant = null) -> String:
 				state[key] = saved[key]
 		event_serial = int(state.get("event_serial", 0))
 	reconcile_content()
+	if not is_walkable(Vector2(content.spawn.x, content.spawn.z)):
+		return "spawn must be on traversable land and clear of solid objects"
 	return ""
 
 func reconcile_content() -> void:
@@ -113,7 +123,15 @@ func reconcile_content() -> void:
 			old.hp = clampf(float(old.hp), 0, enemy.hp)
 			old.max_hp = enemy.hp
 			old.kind = enemy.kind
+	for id in state.objects.keys():
+		if not object_defs.has(id):
+			state.objects.erase(id)
+	for id in state.enemies.keys():
+		if not enemy_defs.has(id):
+			state.enemies.erase(id)
 	for player in state.players.values():
+		if not object_defs.has(player.get("selected", "")):
+			player.selected = ""
 		if not is_walkable(Vector2(player.x, player.z)):
 			player.x = content.spawn.x
 			player.z = content.spawn.z
@@ -122,8 +140,17 @@ func apply_content(candidate: Dictionary) -> String:
 	var error = validate(candidate)
 	if not error.is_empty():
 		return error
-	content = candidate.duplicate(true)
-	reconcile_content()
+	# Candidate state/resources are isolated. The active world is only exchanged after
+	# complete initialization and migration, at this main-thread frame boundary.
+	var prepared = get_script().new()
+	error = prepared.initialize(candidate, snapshot())
+	if not error.is_empty():
+		return error
+	content = prepared.content
+	state = prepared.state
+	object_defs = prepared.object_defs
+	enemy_defs = prepared.enemy_defs
+	event_serial = prepared.event_serial
 	push_event("content_applied", Vector2(content.spawn.x, content.spawn.z), {"label": content.get("revision_label", "new release")})
 	return ""
 

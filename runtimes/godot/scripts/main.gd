@@ -53,6 +53,11 @@ func _ready() -> void:
 		var error = Game.validate(candidate)
 		if error.is_empty():
 			error = game.initialize(candidate)
+		if error.is_empty():
+			game.join("validation-explorer", "Validation Explorer")
+			game.command("validation-explorer", "move", {"x": 0, "z": 0})
+			for i in range(6):
+				game.step(1.0 / 30)
 		if not error.is_empty():
 			printerr("CONTENT_REJECTED: " + error)
 			get_tree().quit(2)
@@ -74,6 +79,7 @@ func _ready() -> void:
 		hud.game_root = self
 		visual.game_root = self
 	if role == "offline":
+		user_id = str(args.get("offline-user", "offline-explorer"))
 		var candidate = load_json(str(args.get("content", "res://content/world.json")))
 		var saved = load_json(str(args.get("save", ""))) if args.has("save") else null
 		var error = game.initialize(candidate if candidate is Dictionary else {}, saved)
@@ -133,6 +139,9 @@ func _process(delta: float) -> void:
 		process_controls(delta)
 		while scripted_index < input_script.size() and float(input_script[scripted_index].get("at", 0)) <= elapsed:
 			var command = input_script[scripted_index]
+			if command.get("action") == "move":
+				external_move = Vector2(command.get("payload", {}).get("x", 0), command.get("payload", {}).get("z", 0)).limit_length(1)
+				external_move_until = elapsed + float(command.get("duration", .1))
 			issue_command(str(command.get("action", "")), command.get("payload", {}))
 			scripted_index += 1
 	if visual and initialized:

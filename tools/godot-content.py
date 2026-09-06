@@ -21,6 +21,9 @@ obj('citadel_supply','遗迹医疗站','supply',-12,-53,'citadel',interactable=T
 # Route platforms provide broad readable traversal corridors.
 for i,(a,b) in enumerate([((0,6),(-43,-21)),((0,6),(43,-21)),((-43,-21),(0,-66)),((43,-21),(0,-66))]):
     ax,az=a;bx,bz=b
+    distance=math.hypot(bx-ax,bz-az);ux=(bx-ax)/distance;uz=(bz-az)/distance
+    start_radius=21 if i<2 else 23;end_radius=23 if i<2 else 25
+    ax+=ux*start_radius;az+=uz*start_radius;bx-=ux*end_radius;bz-=uz*end_radius
     obj('bridge_'+str(i),'星屿航桥','bridge',(ax+bx)/2,(az+bz)/2,'observatory',length=math.hypot(bx-ax,bz-az),width=7,rotation=-math.atan2(bz-az,bx-ax),color='#70938c')
 for i in range(8):
     angle=i*math.tau/8

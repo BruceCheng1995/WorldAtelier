@@ -28,8 +28,8 @@ func _ready() -> void:
 	env.background_color = Color("#0b1728")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("#90b8dc")
-	env.ambient_light_energy = .62
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.ambient_light_energy = .36
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	env.fog_enabled = true
 	env.fog_light_color = Color("#172d42")
 	env.fog_density = .0025
@@ -38,18 +38,18 @@ func _ready() -> void:
 	var sunlight = DirectionalLight3D.new()
 	sunlight.rotation_degrees = Vector3(-53, -31, 0)
 	sunlight.light_color = Color("#ffedc9")
-	sunlight.light_energy = 1.45
+	sunlight.light_energy = .82
 	sunlight.shadow_enabled = true
 	sunlight.directional_shadow_max_distance = 105
 	add_child(sunlight)
 	var fill = DirectionalLight3D.new()
 	fill.rotation_degrees = Vector3(-25, 145, 0)
 	fill.light_color = Color("#66a5cf")
-	fill.light_energy = .48
+	fill.light_energy = .24
 	add_child(fill)
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 35
+	camera.size = 27
 	camera.far = 280
 	add_child(camera)
 	camera.current = true
@@ -129,7 +129,7 @@ func label(parent: Node3D, text: String, pos: Vector3, color: Color, font_size: 
 	node.text = text
 	node.position = pos
 	node.font_size = font_size
-	node.pixel_size = .009
+	node.pixel_size = .015
 	node.modulate = color
 	node.outline_modulate = Color("#081724")
 	node.outline_size = 8
@@ -403,6 +403,13 @@ func update_world(new_state: Dictionary, local_user: String, delta: float) -> vo
 		if players.has(target_id):
 			var target = players[target_id]
 			node.rotation.y = lerp_angle(node.rotation.y, atan2(enemy.x - target.x, enemy.z - target.z), delta * 4)
+	var current_enemies = {}
+	for def in content.get("enemies", []):
+		current_enemies[def.id] = true
+	for id in enemy_nodes.keys():
+		if not current_enemies.has(id):
+			enemy_nodes[id].queue_free()
+			enemy_nodes.erase(id)
 	for id in objects:
 		var node = objects[id]
 		var object_state = state.get("objects", {}).get(id, {})
