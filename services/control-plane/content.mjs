@@ -7,6 +7,8 @@ export function canonical(v) {
   return JSON.stringify(v);
 }
 export function validateContent(content) {
+  if(content?.asset_blobs)throw Error('Asset blobs are injected by the build service, not source edits');
+  if(content?.behaviors&&(!Array.isArray(content.behaviors)||content.behaviors.length>8))throw Error('Invalid behavior list');
   if(!content || content.schema!==1) throw Error('Unsupported content schema');
   for(const key of ['zones','objects','enemies','quests']) {
     if(!Array.isArray(content[key])||content[key].length>3000) throw Error(`Invalid ${key}`);

@@ -19,6 +19,6 @@ export class Storage {
   remove(kind,id) {this.db.prepare('DELETE FROM documents WHERE kind=? AND id=?').run(kind,id);}
   transaction(fn) {this.db.exec('BEGIN IMMEDIATE');try {const result=fn();this.db.exec('COMMIT');return result;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   event(project_id,body) {this.db.prepare('INSERT INTO events(project_id,body) VALUES(?,?)').run(project_id,JSON.stringify({...body,at:Date.now()}));}
-  activity(project_id) {return this.db.prepare('SELECT sequence,body FROM events WHERE project_id=? ORDER BY sequence DESC LIMIT 100').all(project_id).map(r=>({...JSON.parse(r.body),sequence:r.sequence}));}
+  activity(project_id) {return this.db.prepare('SELECT sequence,body FROM events WHERE project_id=? ORDER BY sequence DESC LIMIT 100').all(project_id).map(r=>{const body=JSON.parse(r.body);if(body.world_id&&body.sequence!==undefined){body.world_sequence=body.sequence;delete body.sequence;}return {...body,activity_sequence:r.sequence};});}
   close() {this.db.close();}
 }
