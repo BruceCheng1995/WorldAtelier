@@ -26,7 +26,8 @@ func _ready() -> void:
 
 func refresh() -> void:
 	if not is_inside_tree(): return
-	for child in get_children():
+	for child in get_children(true):
+		if not child.get_meta("atelier_preview", false): continue
 		remove_child(child)
 		child.queue_free()
 	var mesh := MeshInstance3D.new()
@@ -37,9 +38,11 @@ func refresh() -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = object_color
 	mesh.material_override = material
+	mesh.set_meta("atelier_preview", true)
 	add_child(mesh, false, Node.INTERNAL_MODE_BACK)
 	if not model_asset.is_empty() and ResourceLoader.exists("res://assets/" + model_asset + ".glb"):
 		var model = load("res://assets/" + model_asset + ".glb").instantiate()
+		model.set_meta("atelier_preview", true)
 		add_child(model, false, Node.INTERNAL_MODE_BACK)
 		mesh.visible = false
 	if solid:
@@ -50,6 +53,7 @@ func refresh() -> void:
 		shape.shape = bounds
 		shape.position.y = 0.75
 		body.add_child(shape)
+		body.set_meta("atelier_preview", true)
 		add_child(body, false, Node.INTERNAL_MODE_BACK)
 	var label := Label3D.new()
 	label.text = display_name + "\n" + stable_id
@@ -57,4 +61,5 @@ func refresh() -> void:
 	label.pixel_size = 0.012
 	label.position.y = 2.0
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.set_meta("atelier_preview", true)
 	add_child(label, false, Node.INTERNAL_MODE_BACK)
