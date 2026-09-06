@@ -2,7 +2,7 @@
 
 从中央服务器选择主干或分支，取得匹配的客户端与世界状态，进入游戏；在网页、Godot 编辑器或离线工作区制作内容，再提交回对应分支。
 
-**完整开发与测试正在进行，尚未完成最终交付。** 真实网页、桌面、离线和中央权威端均已运行；当前验收状态见 [ACCEPTANCE](docs/ACCEPTANCE.md)。这是从头建立的新工程，旧工程记录不计入验收。
+**本机完整开发与六项验收已交付，游戏版本 0.1.3。** 真实网页、桌面、离线和中央权威端均已运行；证据、精确版本与风险见 [验收报告](docs/VALIDATION-REPORT.md) 和 [验收矩阵](docs/ACCEPTANCE.md)。这是从头建立的新工程，旧工程记录不计入验收。
 
 先阅读 [总体架构](docs/ARCHITECTURE.md) 和 [协议设计](docs/PROTOCOL.md)。
 
@@ -51,7 +51,7 @@ npm start
 node --test tests/content.test.mjs
 node --test tests/e2e/central.test.mjs
 node --test tests/e2e/live-content.test.mjs
-node tests/web-play.mjs
+WORLD_ATELIER_WEB_CAMPAIGN=1 node tests/web-play.mjs
 ```
 
 独立协议驱动共用隔离端口 48921，必须顺序运行；真实网页驱动用 48923。驱动创建独立账号、项目、数据目录和世界，不清空正常服务。详见 [独立测试说明](tests/e2e/README.md)。
@@ -61,3 +61,11 @@ node tests/web-play.mjs
 服务数据默认位于 `.local/server`，不可变程序在 `.local/artifacts`。`WORLD_ATELIER_DATA`、`WORLD_ATELIER_PORT` 和 `WORLD_ATELIER_RUNTIME_ROOT` 可用于独立环境。发行及其资产当前全部保留，没有自动删除历史版本的清理任务。
 
 本地管理员可用 `tools/backup.mjs create --data=目录 --out=新备份目录` 保存一致的数据库与被引用资产、客户端；`restore --from=备份 --data=新目录 --runtime-root=新产物目录` 恢复到独立位置。恢复拒绝覆盖已有数据库，备份包含账号认证数据，应按服务数据保管。
+
+## 已建立的本机演示
+
+本轮交付保留一个可继续编辑的「星屿远征 · 共享开发工程」，含 main、scene-lab 两个内容分支与各自的世界。示例账号与本机入口见 Git 忽略的 `.local/DEMO-ACCESS.md`；不在源码中内置通用密码。`node tools/create-local-demo.mjs` 通过正常授权 API 建立并记录这个工程，可重入且不会删除其他工程。
+
+## 外部地址配置
+
+反向代理部署时，显式设置 `WORLD_ATELIER_PUBLIC_URL=https://你的域名`；客户端票据使用同一外部 origin 对应的 `wss://`，避免外部用户误连自己的 localhost。默认监听 `127.0.0.1:48900`；需要另一个绑定地址时设置 `WORLD_ATELIER_BIND_HOST`。反向代理须转发 HTTP 与 WebSocket，并保留本服务的响应头；HTTPS 证书由部署环境提供。该配置不意味着本轮已经发布公网服务，公网 TLS、远程网络和容量仍需在目标环境验收。

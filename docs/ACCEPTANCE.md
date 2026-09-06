@@ -1,19 +1,24 @@
-# Full development acceptance — active, not complete
+# 完整开发验收
 
-User goal: a substantial game and complete end-to-end, multi-user collaborative development with real content and all prior presentation effects. Intermediate milestones do not redefine completion.
+日期：2026-09-07。新工程的六项用户验收均已有实际通过证据；按下述环境与边界交付。最终游戏版本 0.1.3，完整图形回归 0.1.2，加 0.1.3 桥梁校验及启动补丁回归。详细版本、失败记录、截图与风险见 [完整验收报告](VALIDATION-REPORT.md)。
 
-| Requirement | Evidence required | Current |
+| 用户要求 | 结果 | 实际覆盖 |
 | --- | --- | --- |
-| Substantial authored game | Four distinct areas, traversal, enemies, boss, objectives, progression and polished audiovisual feedback actually played | pending |
-| Central authority | Real Godot host, persistent state, restart restoration and stale writer fencing | pending |
-| Multiple collaborators | Independent accounts/clients edit, observe, test, conflict and merge actual content | pending |
-| Versioned release | Actual export artifacts, hash validation, build failure, late build protection and pinned downloads | pending |
-| Web and desktop gameplay | Both exported targets execute real gameplay, connect same world and continue progress | pending |
-| Offline workflow | Download workspace/client/state, edit and play offline, upload content conflict-safe, no progress overwrite | pending |
-| Branch jump | Prepare actual target, synchronize, single control authority, failure recovery, return to original world | pending |
-| Godot live development | Parameters, scene/model/collision and compliant behavior changes while playing; invalid candidate rejection and state preservation | pending |
-| Presentation states | Cyan selection outline and bounds; orange/yellow maintenance halo, black/yellow construction marks; editing/testing/delivered/failed transitions visible and branch-isolated | pending |
-| Reliability | Full protocol fault matrix in PROTOCOL.md executed; permission and persistence checks | pending |
-| E2E delivery | Reproducible scripts, multi-client runs, screenshots/video, independent review, run/package instructions | pending |
+| 多用户编辑与合并 | 通过 | 五账号/两项目权限测试；实际三方合并、冲突和分支合并；两个真实 Web 角色合作通关 |
+| Blender 建模至上传发布 | 通过 | 从空场景制作新中继站；.blend/GLB 可追溯；真实网页文件上传、提交、Godot 验证、现场模型替换 |
+| 网页批注及状态表现 | 通过 | 实际编辑/构建/应用/失败推动状态；青色描边与包围、橙黄维护圈、黄黑施工标志，状态文字独立可读 |
+| 对象版本及前端 | 通过 | 所见版本冻结、对象字段历史、批注周期、单对象恢复草稿、逐世界交付、旧世界等待与分支隔离 |
+| 独立预制件/系统测试 | 通过 | 290 个 PackedScene、每轮 1928 断言；36 种代表画面逐图复核，四态标签修复后另复核 5 图 |
+| 实际本地与 Web 包运行 | 通过 | 真实 macOS/离线客户端、Godot 原生保存闭环、双 Web 全战役、分支切换和客户端版本交接 |
 
-Evidence must identify exact code/content version, processes, isolated data and runtime ACKs. Headless checks do not substitute rendered and manual-input testing.
+游戏规模为四个区域、227 个创作对象、46 个敌人及首领、三座信标、战斗、探索、拾取、锻造升级及死亡恢复。完整网页战役发送普通玩家命令，不直接写入奖励、坐标或通关状态。预制件和边界测试使用明确种子，二者区分记录。
+
+| 支撑能力 | 验收 |
+| --- | --- |
+| 权威、持久化和唯一控制 | 真实发行程序、状态先持久化再 ACK、重启新 epoch、重复指令与旧端拒写 |
+| 真实发行与热更 | 固定哈希下载、旧构建晚完成不回退、GLB/合规行为真实应用、非法候选拒绝与已检测非法输出回退 |
+| 世界交接与恢复 | 分支往返、旧下载损坏保留原端、两种运行时升级、目标失败恢复、协调者崩溃恢复 |
+| 离线/外部编辑 | 完整可移动离线包、源码与可玩版本分离、存档域隔离、上传中本地编辑保留、真实原生编辑器保存至在线应用 |
+| 备份与部署地址 | 真正从新数据及新程序目录恢复并下载历史版本；显式外部 origin 的本地 HTTP/WS 代理接入通过 |
+
+本轮没有部署公网服务，没有验证大规模并发、长时间性能、私有过滤视图、分布式租约或通用任意 Godot 场景/脚本 HMR。完整故障设计中的未实现项属于后续能力，不冒称本地测试已经覆盖。具体风险列于验收报告。

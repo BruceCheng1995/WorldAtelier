@@ -2,7 +2,7 @@
 
 This is a new project, created from scratch at the user's explicit request on 2026-09-06. The only engineering root is `/Users/chengzhi/Projects/WorldAtelier`. The former RuntimeAtelier and runtime-atelier applications are retired; do not restore, migrate or use their code as the implementation baseline.
 
-Read `PROJECT.md`, `docs/DEVELOPMENT-CONTEXT.md`, `docs/ARCHITECTURE.md`, `docs/PROTOCOL.md`, `packages/contracts/IMPLEMENTATION.md` and `docs/ACCEPTANCE.md` before implementing. Full development is active. The control service and initial Godot game are implemented in part; acceptance must be determined from fresh evidence, never from file presence.
+Read `PROJECT.md`, `docs/DEVELOPMENT-CONTEXT.md`, `docs/ARCHITECTURE.md`, `docs/PROTOCOL.md`, `packages/contracts/IMPLEMENTATION.md` and `docs/ACCEPTANCE.md` before implementing. The six-part local development acceptance is delivered; see docs/VALIDATION-REPORT.md for exact tested runtime versions and scope. Further acceptance must use fresh evidence, never file presence or extrapolation from earlier runs.
 
 The product is a centrally managed, versioned world service. The server owns projects, collaborator access, source branches, validated releases, world checkpoints, running-world authority, storage and job scheduling. Desktop, web, native editor and offline workspaces are clients. Web gameplay is a first-class requirement, not satisfied by a model viewer.
 
