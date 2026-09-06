@@ -1,3 +1,4 @@
+import { clientAddress } from "./address.mjs";
 import {
   objectAt,
   objectHash,
@@ -34,6 +35,8 @@ const data = resolve(
   process.env.WORLD_ATELIER_DATA ?? join(root, ".local/server"),
 );
 const port = Number(process.env.WORLD_ATELIER_PORT ?? 48900);
+const publicAddress = clientAddress(port, process.env.WORLD_ATELIER_PUBLIC_URL);
+const bindHost = process.env.WORLD_ATELIER_BIND_HOST ?? "127.0.0.1";
 const godot =
   process.env.GODOT_BIN ?? "/Applications/Godot.app/Contents/MacOS/Godot";
 mkdirSync(data, { recursive: true });
@@ -1081,7 +1084,7 @@ const server = http.createServer(async (req, res) => {
         used: false,
       });
       const rel = store.get("release", c.release_id),
-        server_url = `ws://127.0.0.1:${port}`;
+        server_url = publicAddress.websocket;
       return json(res, 200, {
         ticket,
         world_id: w.id,
@@ -1594,8 +1597,8 @@ worlds.on("failure", ({ world_id, error }) => {
       send(socket, { type: "error", error });
     }
 });
-server.listen(port, "127.0.0.1", () => {
-  console.log(`World Atelier ready http://127.0.0.1:${port}`);
+server.listen(port, bindHost, () => {
+  console.log(`World Atelier ready ${publicAddress.http} (bind ${bindHost}:${port})`);
   for (const w of store.list("world"))
     if (["running", "starting", "upgrading"].includes(w.status))
       worlds.recover(w).catch((e) => console.error(w.id, e.message));

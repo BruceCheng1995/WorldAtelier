@@ -62,6 +62,13 @@ export function validateContent(content) {
       }
   }
   check(content);
+  for (const object of content.objects) {
+    if (object.kind !== "bridge") continue;
+    for (const key of ["length", "width"]) {
+      if (typeof object[key] !== "number" || !Number.isFinite(object[key]) || object[key] < 0.1 || object[key] > 160)
+        throw Error(`Bridge ${object.id} requires ${key} between 0.1 and 160`);
+    }
+  }
   if (!content.spawn || !content.rules) throw Error("Missing spawn/rules");
   return content;
 }

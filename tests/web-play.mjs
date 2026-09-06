@@ -38,6 +38,7 @@ const reports = [],
   errors = [],
   expectedErrors = [];
 let injectingDownloadFault = false;
+const attackRequests = new WeakMap();
 try {
   await until(
     "server",
@@ -62,6 +63,13 @@ try {
       acceptDownloads: true,
     });
     const page = await context.newPage();
+    attackRequests.set(page, []);
+    page.on("websocket", socket => socket.on("framesent", event => {
+      try {
+        const message=JSON.parse(String(event.payload));
+        if(message.type === "command" && message.action === "attack") attackRequests.get(page).push({at:Date.now(),request_id:message.request_id});
+      } catch {}
+    }));
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
       if (m.type() === "error") {
@@ -165,6 +173,16 @@ try {
   reports.push(
     "Native browser keyboard input moved the real Godot player; authoritative tick advanced",
   );
+  const attackStart=attackRequests.get(owner).length;
+  await owner.keyboard.down("Space");
+  await wait(3000);
+  await owner.keyboard.up("Space");
+  await wait(350);
+  const heldAttack=attackRequests.get(owner).slice(attackStart);
+  assert.ok(heldAttack.length>=3 && heldAttack.length<=12, `Held Space must repeat attacks without a per-frame request flood: ${heldAttack.length}`);
+  await writeFile(join(evidence,"held-space-input.json"),JSON.stringify({held_ms:3000,requests:heldAttack},null,2));
+  reports.push(`Actual browser held-Space input sent ${heldAttack.length} attack requests over three seconds without per-frame flooding`);
+
   await owner.getByLabel("当前对象", { exact: true }).selectOption("starheart");
   await until(
     "selection in Godot",
@@ -228,34 +246,22 @@ try {
   }
   await api(editorSession, "/tasks/" + task.id, { status: "testing" }, "PATCH");
   await renderedStatus("testing");
-  const uploaded = await api(editorSession, projectPath + "/assets", {
-    name: "真实远征者模型.glb",
-    mime: "model/gltf-binary",
-    data_base64: (
-      await readFile(join(root, "runtimes/godot/assets/explorer.glb"))
-    ).toString("base64"),
-  });
-  const draft = await api(
-    editorSession,
-    projectPath + "/branches/main/content",
-  );
-  const modified = draft.content.objects.find((o) => o.id === "starheart");
-  modified.name = "协作更新的星核";
-  modified.model_asset = uploaded.asset.hash;
-  await api(editorSession, projectPath + "/branches/main/commit", {
-    base_revision: draft.revision,
-    content: draft.content,
-    message: "协作者投递真实GLB并验证施工交付",
-  });
-  const build = (
-    await api(editorSession, projectPath + "/branches/main/build", {})
-  ).build;
-  await until("model build", async () => {
-    details = await api(editorSession, projectPath);
-    const value = details.builds.find((x) => x.id === build.id);
-    if (value.status === "failed") throw Error(value.error);
-    return value.status === "passed";
-  });
+  const pipeline=JSON.parse(await readFile(join(root,"runtimes/godot/assets/source/live_pipeline/pipeline-report.json"),"utf8"));
+  const modelFile=join(root,"runtimes/godot/assets/source/live_pipeline/sunforge_relay.glb");
+  const beforeEdit=await api(editorSession,projectPath+"/branches/main/content");
+  await editor.getByLabel("当前对象",{exact:true}).selectOption("starheart");
+  await editor.getByLabel("上传真实 GLB 模型",{exact:true}).setInputFiles(modelFile);
+  await expect(editor.locator(".asset-reference")).toContainText("sunforge_relay.glb");
+  const uploaded={asset:(await api(editorSession,projectPath+"/assets")).assets.find(a=>a.name==="sunforge_relay.glb")};
+  assert.equal(uploaded.asset.hash,pipeline.glb_sha256);assert.equal(uploaded.asset.bytes,pipeline.glb_bytes);
+  await editor.getByLabel("对象名称",{exact:true}).fill("Blender新建 · 星铸中继站");
+  await editor.getByLabel("提交说明",{exact:true}).fill("从Blender建模、上传、提交到现场发布的完整验证");
+  await editor.getByRole("button",{name:"提交场景修改",exact:true}).click();
+  const committed=await until("UI source commit",async()=>{const result=await api(editorSession,projectPath+"/branches/main/content");return result.revision!==beforeEdit.revision?result:null;});
+  assert.equal(committed.content.objects.find(o=>o.id==="starheart").model_asset,pipeline.glb_sha256);
+  await editor.getByRole("button",{name:"构建验证",exact:true}).click();
+  await until("actual model build from UI",async()=>{details=await api(editorSession,projectPath);const build=details.builds.find(b=>b.revision===committed.revision);if(build?.status==="failed")throw Error(build.error);return build?.status==="passed";});
+  await writeFile(join(evidence,"blender-to-publication.json"),JSON.stringify({pipeline,asset:uploaded.asset,revision:committed.revision,build:details.builds.find(b=>b.revision===committed.revision)},null,2));
   const contentRelease = details.branches.find(
     (x) => x.name === "main",
   ).playable_head;
@@ -278,7 +284,7 @@ try {
   assert.equal(afterHot.player.crystals, beforeHot.player.crystals);
   await renderedStatus("delivered");
   reports.push(
-    "Second collaborator uploaded a real GLB, committed and built it; both running Web clients applied the release without recreating their world, preserving player progress",
+    "Second collaborator uploaded the freshly Blender-authored Sunforge Relay through the real Web file input, committed and built it through UI; both running Web clients applied the release without recreating their world, preserving player progress",
   );
   await api(editorSession, "/tasks/" + task.id, { status: "failed" }, "PATCH");
   await renderedStatus("failed");
@@ -485,8 +491,9 @@ try {
         moved,
         world_id: a.world_id,
         users: [a.user_id, b.user_id],
-        scope:
-          "Actual Web clients and UI, screenshots require inspection; campaign, offline and branches are separate acceptance",
+        runtime: JSON.parse(await readFile(join(root,".local/runtime-build/manifest.json"),"utf8")),
+        browser: browser.version(),
+        scope: "Actual Web WASM clients, normal keyboard and client commands, UI asset pipeline and world handoff; optional full campaign enabled by WORLD_ATELIER_WEB_CAMPAIGN",
       },
       null,
       2,

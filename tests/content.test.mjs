@@ -25,3 +25,12 @@ test('durable state survives reopen and failed transaction restores previous rev
   const dir=mkdtempSync(join(tmpdir(),'atelier-store-')),file=join(dir,'state.sqlite');let db=new Storage(file);
   try {db.put('world',{id:'one',sequence:9,state:{reward:50}});assert.throws(()=>db.transaction(()=>{db.put('world',{id:'one',sequence:10,state:{reward:0}});throw Error('failure');}));db.close();db=new Storage(file);assert.deepEqual(db.get('world','one'),{id:'one',sequence:9,state:{reward:50}});}finally{db.close();rmSync(dir,{recursive:true});}
 });
+
+ test('bridge source must contain the dimensions required by actual rendering',()=>{
+ const valid={schema:1,spawn:{x:0,z:0},rules:{},zones:[],objects:[{id:'bridge',kind:'bridge',length:24,width:8}],enemies:[],quests:[]};
+ assert.equal(validateContent(valid),valid);
+ for(const key of ['length','width']) for(const value of [undefined,null,'8',0,-1,161]) {
+   const candidate=structuredClone(valid); if(value===undefined) delete candidate.objects[0][key]; else candidate.objects[0][key]=value;
+   assert.throws(()=>validateContent(candidate),/Bridge bridge requires/);
+ }
+});
