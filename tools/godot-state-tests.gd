@@ -46,5 +46,12 @@ func _initialize() -> void:
 	invalid = content.duplicate(true)
 	invalid.objects[0].solid = "yes"
 	check(not Game.validate(invalid).is_empty(), "malformed collision flag rejected")
+	for omitted in [["length"], ["width"], ["length", "width"]]:
+		invalid = content.duplicate(true)
+		for object in invalid.objects:
+			if object.kind == "bridge":
+				for field in omitted: object.erase(field)
+				break
+		check(Game.validate(invalid) == "bridge requires length and width", "bridge rejects missing " + ", ".join(omitted))
 	print("GAME_STATE_TESTS passed=%d failed=%d" % [passed, failed])
 	quit(0 if failed == 0 else 1)

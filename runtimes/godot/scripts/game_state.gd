@@ -47,6 +47,8 @@ static func validate(candidate: Variant) -> String:
 			return "duplicate object id or unknown zone: " + str(object.id)
 		if not object.get("kind") in ["beacon", "crystal", "supply", "gate", "forge", "monument", "tree", "rock", "pillar", "platform", "bridge", "lamp", "flower", "furnace", "arch"]:
 			return "unsupported object kind"
+		if object.kind == "bridge" and (not object.has("length") or not object.has("width")):
+			return "bridge requires length and width"
 		for key in ["solid", "interactable"]:
 			if object.has(key) and not object[key] is bool:
 				return "object " + key + " must be boolean"
