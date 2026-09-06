@@ -375,7 +375,7 @@ async function joinWorld(mode = 'join-live') {
   await run('准备目标世界', async () => {
     try {
     downloadProgress.value = null; joinStatus.value = '正在锁定匹配的客户端、内容和世界…'
-    const result = await post(`${projectPath()}/checkouts`, {branch:branchName.value,platform:'web',mode,...(mode === 'join-live' && selectedWorld.value ? {world_id:selectedWorld.value.id} : {})})
+    const result = await post(`${projectPath()}/checkouts`, {branch:branchName.value,platform:'web',mode,...(mode === 'join-live' && selectedWorld.value ? {world_id:selectedWorld.value.id,release_id:selectedWorld.value.release_id} : {})})
     await verifyWebArtifacts(result.artifacts, progress => {
       downloadProgress.value = progress
       const size = `${(progress.loaded / 1048576).toFixed(1)} / ${(progress.total / 1048576).toFixed(1)} MB`

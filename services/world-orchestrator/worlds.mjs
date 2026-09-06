@@ -1,3 +1,4 @@
+import {digest} from '../control-plane/content.mjs';
 import {releaseContent} from '../control-plane/assets.mjs';
 import {EventEmitter} from 'node:events';
 import {spawn} from 'node:child_process';
@@ -28,7 +29,7 @@ export class Worlds extends EventEmitter {
     try{ready=await this.start(world);}
     catch(error){
       if(!receipt||world.release_id===receipt.source_release)throw error;
-      await this.stopHost(world.id);world=this.store.get('world',world.id);world.release_id=receipt.source_release;world.status='starting';this.store.put('world',world);
+      await this.stopHost(world.id);world=this.store.get('world',world.id);world.release_id=receipt.source_release;const checkpoint=this.store.get('checkpoint',receipt.checkpoint_id);if(!checkpoint||digest(checkpoint.state)!==checkpoint.state_hash)throw Error('Upgrade recovery checkpoint missing or corrupt');world.state=structuredClone(checkpoint.state);world.status='starting';this.store.put('world',world);
       receipt.error=error.message;
       try{ready=await this.start(world);}catch(recovery){receipt.status='recovery-required';receipt.recovery_error=recovery.message;this.store.put('upgrade',receipt);throw recovery;}
     }
@@ -115,6 +116,14 @@ export class Worlds extends EventEmitter {
     this.hosts.delete(id);h.socket?.close();h.child.kill('SIGTERM');
     await new Promise(resolve=>{if(h.child.exitCode!==null)return resolve();const timer=setTimeout(()=>{h.child.kill('SIGKILL');resolve();},1500);h.child.once('exit',()=>{clearTimeout(timer);resolve();});});
   }
+  sleep(id) {return this.serial(id,async()=>{
+    let world=this.store.get('world',id);if(world.status==='sleeping')return {ok:true,world,sequence:world.durable_sequence};
+    const final=await this.send(id,{type:'freeze'});if(!final.ok)throw Error(final.error??'World refused final checkpoint');
+    world=this.store.get('world',id);world.status='sleeping';world.slept_at=Date.now();this.store.put('world',world);
+    this.emit('sleeping',world);await this.stopHost(id);
+    this.store.event(world.project_id,{kind:'world_sleep',title:'世界已保存最终检查点并休眠',world_id:id,sequence:world.durable_sequence});
+    return {ok:true,world,sequence:world.durable_sequence};
+  });}
   upgrade(id,release) {return this.serial(id,async()=>{
     let world=this.store.get('world',id);
     const previous=this.store.get('release',world.release_id);
@@ -127,7 +136,9 @@ export class Worlds extends EventEmitter {
     let frozen;
     try{frozen=await this.send(id,{type:'freeze'});if(!frozen.ok)throw Error(frozen.error??'Authority refused final checkpoint');}
     catch(error){receipt.status='failed';receipt.error=error.message;this.store.put('upgrade',receipt);throw error;}
-    world=this.store.get('world',id);receipt.source_epoch=world.epoch;receipt.source_watermark=world.durable_sequence;receipt.status='starting';
+    world=this.store.get('world',id);
+    const checkpoint={id:'checkpoint_'+randomUUID(),world_id:id,release_id:previous.id,epoch:world.epoch,sequence:world.durable_sequence,state:structuredClone(world.state),state_hash:digest(world.state),created_at:Date.now()};
+    this.store.put('checkpoint',checkpoint);receipt.checkpoint_id=checkpoint.id;receipt.source_epoch=world.epoch;receipt.source_watermark=world.durable_sequence;receipt.status='starting';
     world.status='upgrading';world.upgrade_id=receipt.id;
     this.store.transaction(()=>{this.store.put('upgrade',receipt);this.store.put('world',world);});
     this.emit('upgrading',world);
@@ -141,7 +152,7 @@ export class Worlds extends EventEmitter {
     }catch(error){
       // Candidate startup failed after the fence: resume the exact old release
       // at a NEW epoch, preserving the final durable world checkpoint.
-      await this.stopHost(id);world=this.store.get('world',id);world.release_id=previous.id;world.status='starting';this.store.put('world',world);
+      await this.stopHost(id);world=this.store.get('world',id);world.release_id=previous.id;world.state=structuredClone(checkpoint.state);world.status='starting';this.store.put('world',world);
       receipt.error=error.message;
       try{await this.start(world);receipt.status='rolled-back';world=this.store.get('world',id);delete world.upgrade_id;world.health='recovered';this.store.put('world',world);this.emit('runtime_upgrade',world);}
       catch(recovery){receipt.status='recovery-required';receipt.recovery_error=recovery.message;}
