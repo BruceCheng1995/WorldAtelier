@@ -38,10 +38,14 @@ var last_move = Vector2.ZERO
 var log_message = "WASD to explore · E to interact · Space to strike · Shift to dash"
 var log_until = 9.0
 var last_sequence = -1
+var pending_snapshot_ack: Dictionary = {}
 var captured = false
 var reported_runtime_fault = ""
 
 func _ready() -> void:
+	# A single immutable GLB release may exceed the 64 KiB engine default.
+	socket.inbound_buffer_size = 32 * 1024 * 1024
+	socket.outbound_buffer_size = 32 * 1024 * 1024
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--"):
 			var pair = arg.substr(2).split("=", true, 1)
@@ -133,7 +137,7 @@ func _process(delta: float) -> void:
 				if role == "authority":
 					send({"type": "host_hello", "world_id": args.get("world", ""), "host_key": args.get("host-key", "")})
 				else:
-					send({"type": "hello", "ticket": args.get("ticket", "")})
+					send({"type": "hello", "ticket": args.get("ticket", ""), "snapshot_ack": true})
 			while socket.get_available_packet_count() > 0:
 				var packet = JSON.parse_string(socket.get_packet().get_string_from_utf8())
 				if packet is Dictionary:
@@ -157,6 +161,9 @@ func _process(delta: float) -> void:
 	if visual and initialized:
 		visual.update_world(state, user_id, delta)
 		soundscape.update_state(state, user_id)
+	if not pending_snapshot_ack.is_empty():
+		send(pending_snapshot_ack)
+		pending_snapshot_ack = {}
 	if hud:
 		hud.queue_redraw()
 	telemetry_clock += delta
@@ -266,7 +273,9 @@ func receive(packet: Dictionary) -> void:
 				return
 			state = packet.get("state", {})
 			last_sequence = int(packet.get("sequence", last_sequence))
+			pending_snapshot_ack = {"type": "snapshot_ack", "sequence": packet.get("sequence", -1), "release_id": packet.get("release_id", release_id), "epoch": packet.get("epoch", epoch)}
 		"content":
+			pending_snapshot_ack = {}
 			active = false
 			var candidate = packet.get("content")
 			var error = Game.validate(candidate)
@@ -390,6 +399,18 @@ func _on_browser_message(arguments: Array) -> void:
 func emit_telemetry() -> void:
 	var player = state.get("players", {}).get(user_id, {})
 	var packet = {"source": "world-atelier-game", "type": "telemetry", "world_id": world_id, "release_id": release_id, "epoch": epoch, "tick": state.get("tick", 0), "user_id": user_id, "active": active, "selected": player.get("selected", ""), "player": player, "sequence": last_sequence, "object_count": content.get("objects", []).size(), "enemy_count": content.get("enemies", []).size(), "tasks": state.get("tasks", []), "status": connection_status}
+	packet.fps = Engine.get_frames_per_second()
+	packet.module_assets = state.get("module_assets", [])
+	packet.runtime_fault = state.get("runtime_fault", null)
+	if visual:
+		packet.rendered_model_assets = visual.prepared_assets.keys()
+		packet.selection_bounds = is_instance_valid(visual.selection)
+		packet.rendered_tasks = []
+		for task_id in visual.task_nodes:
+			packet.rendered_tasks.append({"id": task_id, "status": visual.task_nodes[task_id].get_meta("status")})
+		var actor_node = visual.player_nodes.get(user_id)
+		if actor_node != null and actor_node.has_meta("animation_player"):
+			packet.avatar_animation = actor_node.get_meta("animation_player").current_animation
 	if OS.has_feature("web"):
 		var window = JavaScriptBridge.get_interface("window")
 		window.parent.postMessage(JavaScriptBridge.get_interface("JSON").parse(JSON.stringify(packet)), window.location.origin)
