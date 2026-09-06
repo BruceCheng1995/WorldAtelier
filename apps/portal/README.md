@@ -68,3 +68,11 @@ node apps/portal/tests/ui-smoke.mjs
 ```
 
 测试通过 UI 创建两名真实用户与工程，验证成员权限、同对象并发冲突和草稿保留、分支隔离、离线内容导入、任务状态、伪造消息拒绝、权限降级及移动尺寸。它使用实际中央服务，不拦截或模拟响应。它不替代真实游戏、导出客户端、多人玩法与 VFX 的完整端到端验收。
+
+## 对象版本与批注
+
+检查器“对象版本与批注”与协作卡“版本差异与交付记录”读取真实分支对象历史。页面区分源码提交、可玩发行、当前世界实际对象版本，显示逐字段差异、批注基础对象哈希、构建/失败/交付事件和每个世界的实际应用状态。恢复历史只修改此对象草稿，CAS 基础与其他对象保持原状；需要正常提交、构建、应用才改变世界。
+
+现场页面从受校验的当前 Godot iframe telemetry 冻结 `origin: live`、`observed_world_id`、`observed_release_id`。源码页批注发送 `origin: source` 与草稿基础提交；新对象需先提交。切换工程/分支会关闭旧批注上下文。现场版本改变时保留批注文本并显示错误，服务端重新验证通过之前不创建错误版本的批注。
+
+独立真实 UI 测试：启动最新中央服务到独立端口，再用 `WORLD_ATELIER_API` 启动本 Portal。运行 `PORTAL_URL=http://127.0.0.1:48934 PORTAL_EVIDENCE=/path/to/evidence node apps/portal/tests/object-history.mjs`。测试使用真实 Chrome、Godot Web、引擎构建与两个世界；不发送模拟 authority ACK。
