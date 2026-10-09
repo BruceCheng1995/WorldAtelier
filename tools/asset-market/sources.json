@@ -1,0 +1,186 @@
+[
+  {
+    "name": "Toon Characters",
+    "author": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/toon-characters",
+    "download": "https://kenney.nl/media/pages/assets/toon-characters/4e8a6e4e53-1774770819/kenney_toon-characters.zip",
+    "archive": "toon-curl.zip",
+    "sha256": "d4c0eb31f9d9af074315af251a53e8c74925dec84fbd53703c91c9ed4a4cace9",
+    "bytes": 5474287,
+    "verified_date": "2026-09-10"
+  },
+  {
+    "name": "Animated Characters Protagonists",
+    "author": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/animated-characters-protagonists",
+    "download": "https://kenney.nl/media/pages/assets/animated-characters-protagonists/608191acc4-1774773108/kenney_animated-characters-protagonists.zip",
+    "archive": "protagonists.zip",
+    "sha256": "ec3787de70fa2200256848d74201b10f6b6c3126594e9857bf989753312c2b84",
+    "bytes": 581441,
+    "verified_date": "2026-09-10"
+  },
+  {
+    "name": "soldier.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=18UU-iuYMQyrQ3OAMFoRA8DkZ2Uo_2cai",
+    "sha256": "d1395255f7cfa8f766369e37e724fa44e2895a46a719d17f720c9c78b014a901",
+    "bytes": 2343513,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/toonshootergamekit.html"
+  },
+  {
+    "name": "hazmat.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1SRow6CgGJs6mnFihBww3GhfPUYDGnGBz",
+    "sha256": "43d8c6d6e7e95647f24da08d10570a2a29cd7f1e924546bb085b09c62deddc6e",
+    "bytes": 2325520,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/toonshootergamekit.html"
+  },
+  {
+    "name": "zombie-basic.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1S6EfXv0Fc6SiqyoPx5gNF48MI0OajNLr",
+    "sha256": "c6eab64ef87f89cbd6862b59964b20024ca7e329d3d44f72c76fced6c24861c8",
+    "bytes": 1703033,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/zombieapocalypsekit.html"
+  },
+  {
+    "name": "zombie-chubby.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1PKHYBqygDy3ztkJLOQWx4fY00eFL0epN",
+    "sha256": "7c65bae6f0c5f7754ca177a7de7658fc0e4c8de7c8aff33a872d7ffff57a423c",
+    "bytes": 1671276,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/zombieapocalypsekit.html"
+  },
+  {
+    "name": "zombie-ribcage.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1mcGcs5UeeBpgbSwhu3r2yZWoB0V4dazt",
+    "sha256": "3b9ee3e504e34e6b1421076e9c51bc5d6a647350900eb6aa214d0a62491866f3",
+    "bytes": 443873,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/zombieapocalypsekit.html"
+  },
+  {
+    "name": "monster-demon.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1XhBLnR6tjqIrFy0AUfRlqKf-hYmVwIR4",
+    "sha256": "9ce361b41a0e80d42a70f6325169b9c70a6e3304b8d856b8344a2b7f185067af",
+    "bytes": 1264925,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/ultimatemonsters.html"
+  },
+  {
+    "name": "monster-orc.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=17675H4Owu5FeHUk_7Goyc9TKI5YK3cEM",
+    "sha256": "e61a37f8d9b2eee28928bdfad2c55e0798cc0a212e925cc5dcc66b243526c1a3",
+    "bytes": 1280189,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/ultimatemonsters.html"
+  },
+  {
+    "name": "monster-blob.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1Qj3EPCAzN7P3KNrfjV_sFMw98nsBUyob",
+    "sha256": "e2d2049ebe8d243bd0f60a3f48a7e174444f641ebc40cbea2f6c23cb97a82519",
+    "bytes": 148007,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/ultimatemonsters.html"
+  },
+  {
+    "name": "rifle.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1l0xKfDH9bXfoY_I0V5K-ebyvGKOZlyLX",
+    "sha256": "7320d771b829e2dcc0e4463a608d1be9b7217bdf0fdf109e8961a83af1854010",
+    "bytes": 81180,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/toonshootergamekit.html"
+  },
+  {
+    "name": "shotgun.gltf",
+    "download": "https://drive.google.com/uc?export=download&id=1H2nvzQ-QFS8DE6KwCjv0MAbBzXovbG6e",
+    "sha256": "98f8f5a3bd94f6edc6ec9fb2517a8340be77ba88e0f5817e33c3b2a4602f881b",
+    "bytes": 68766,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/toonshootergamekit.html"
+  },
+  {
+    "name": "monster-license.txt",
+    "download": "https://drive.google.com/uc?export=download&id=16GqsDGESyEOfRbc4dS7EqAwkIUSIW4_y",
+    "sha256": "de990ef6fc68cffd7fd1ae342c4d0c823b541b8848d8f76bca5d3339f4de6f6e",
+    "bytes": 374,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/ultimatemonsters.html"
+  },
+  {
+    "name": "zombie-license.txt",
+    "download": "https://drive.google.com/uc?export=download&id=1580uoubj39h6sNRFo394PvNU4ozIwehi",
+    "sha256": "de990ef6fc68cffd7fd1ae342c4d0c823b541b8848d8f76bca5d3339f4de6f6e",
+    "bytes": 374,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/zombieapocalypsekit.html"
+  },
+  {
+    "name": "Atlas_Monsters.png",
+    "download": "https://drive.google.com/uc?export=download&id=1CtLGgAKj-6a6GGNVNQT7GRPM7uyo9Fj8",
+    "sha256": "b970ed1359ce749fd81a8395d58ff5f3044d843213e17fb94b97892d417c0af9",
+    "bytes": 9007,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/ultimatemonsters.html"
+  },
+  {
+    "name": "Zombie_Atlas.png",
+    "download": "https://drive.google.com/uc?export=download&id=1t2OBnWpp2pRV-eaV_vt6weiHN4vlEHwi",
+    "sha256": "8803e5543d5e6b6f66aa41a5ef93e6c2ffb77b5476d0202296d2f4c8f4eb9e8d",
+    "bytes": 6256,
+    "verified_date": "2026-09-10",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/zombieapocalypsekit.html"
+  },
+  {
+    "name": "car-kit",
+    "author": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/car-kit",
+    "download": "https://kenney.nl/media/pages/assets/car-kit/1a312ec241-1775131960/kenney_car-kit.zip",
+    "archive": "car-kit.zip",
+    "sha256": "fac7dacac5c7874348cf19729af3ef205f3d366493edaf0a827d93f4fdf3d0c4",
+    "bytes": 4814237,
+    "verified_date": "2026-09-10"
+  },
+  {
+    "name": "kaykit-adventures",
+    "author": "KayKit",
+    "license": "CC0-1.0",
+    "page": "https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0",
+    "download": "https://codeload.github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0/zip/refs/heads/main",
+    "archive": "kaykit-adventures.zip",
+    "sha256": "e19176d799036452bc783c00dd1036e158c66c5a43b7285ccbfea3466d6f57bf",
+    "bytes": 6141833,
+    "verified_date": "2026-09-10"
+  }
+]

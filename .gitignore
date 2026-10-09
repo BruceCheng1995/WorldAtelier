@@ -11,3 +11,10 @@ artifacts/
 !.env.example
 research/godot/4.6-stable/source/
 research/godot/4.6-stable/*.tar.gz
+
+# Local reports, captures, and generated presentation assets.
+/output/
+/.playwright-mcp/
+/catalog-before.png
+__pycache__/
+*.pyc

@@ -1,0 +1,117 @@
+.wa-access {
+  --access-ink:#1e1e1e; --access-muted:#757575; --access-line:#e5e5e5;
+  --access-paper:#fff; --access-wash:#f5f5f5; --access-blue:#0d99ff;
+  box-sizing:border-box; width:min(520px,calc(100vw - 32px)); max-width:none;
+  height:fit-content; max-height:calc(100dvh - 64px); margin:auto; padding:0;
+  border:1px solid #00000014; border-radius:12px; background:var(--access-paper);
+  color:var(--access-ink); box-shadow:0 8px 32px #0003,0 2px 8px #00000014;
+  font:13px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; overflow:hidden;
+}
+.wa-access[open]{display:flex;flex-direction:column}
+.wa-access:not([open]),.wa-access [hidden],.wa-access-trigger[hidden],.wa-access-badge[hidden]{display:none!important}
+.wa-access::backdrop{background:#0004;backdrop-filter:none}
+.wa-access *{box-sizing:border-box}
+.wa-access :is(button,select,input,textarea){font:inherit}
+.wa-access button{min-height:32px;padding:6px 11px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;color:var(--access-ink);font-size:12px;line-height:1.5;cursor:pointer;white-space:nowrap}
+.wa-access button:hover:not(:disabled){background:#f0f0f0}
+.wa-access :is(button,select,textarea,input):disabled{opacity:.48;cursor:not-allowed}
+.wa-access :is(button,select,textarea,input):focus-visible{outline:2px solid var(--access-blue);outline-offset:2px}
+.wa-access-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px 13px;border-bottom:1px solid var(--access-line);flex:0 0 auto}
+.wa-access-header>div{min-width:0}
+.wa-access-header h2{margin:0;font-size:14px;font-weight:600;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wa-access-header p{margin:3px 0 0;color:var(--access-muted);font-size:11px}
+.wa-access button.wa-access-close{border:0;background:transparent;width:28px;min-height:28px;padding:5px;flex:0 0 auto}
+.wa-access .icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+.wa-access-tabs{display:flex;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid var(--access-line);font-size:12px;flex:0 0 auto}
+.wa-access-tabs button{border:0;background:transparent;color:var(--access-muted);padding:4px}
+.wa-access-tabs strong{font-weight:500}
+.wa-access-status{padding:12px 20px 0;flex:0 0 auto;max-height:25vh;overflow:auto}
+.wa-access-message{padding:9px 11px;border-radius:6px;border:1px solid #c9e7cf;background:#edf8f0;line-height:1.6;font-size:12px;overflow-wrap:anywhere}
+.wa-access-message+.wa-access-message{margin-top:6px}
+.wa-access-message.is-error{color:#a82a21;background:#fff0ee;border-color:#f4c7c2}
+.wa-access-message.is-warning{color:#85601b;background:#fff8e9;border-color:#f2dbaa}
+.wa-access-message button{margin:6px 0 0 8px}
+.wa-access-message small{display:block}
+.wa-access-body{flex:1 1 auto;min-height:0;padding:16px 20px 12px;overflow:auto;overscroll-behavior:contain}
+.wa-access-body:focus{outline:none}
+.wa-access-card{padding:12px 0;margin-bottom:8px;border-bottom:1px solid var(--access-line);background:#fff}
+.wa-access-card:last-child{margin-bottom:0;border-bottom:0}
+.wa-access .is-targeted{background:#edf7ff;outline:2px solid #b8dfff;outline-offset:2px}
+.wa-access h3{margin:0 0 8px;font-size:12px;line-height:1.6;font-weight:600}
+.wa-access h3.wa-access-section-title{margin:16px 0 8px;color:var(--access-muted);font-weight:400}
+.wa-access-body>h3.wa-access-section-title:first-child{margin-top:0}
+.wa-access p{line-height:1.6}
+.wa-access-muted{color:var(--access-muted);font-size:12px;line-height:1.6}
+.wa-access p.wa-access-muted{margin:8px 0 12px}
+.wa-access-empty{padding:25px 10px;text-align:center;color:var(--access-muted)}
+.wa-access-person,.wa-access-invite-row{display:flex;align-items:center;gap:8px;min-width:0}
+.wa-access-person strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:400}
+.wa-access-avatar{display:inline-flex;width:28px;height:28px;flex:0 0 28px;align-items:center;justify-content:center;border-radius:50%;background:#777;color:#fff;font-size:11px;text-shadow:0 1px 2px #0006}
+.wa-access-role{display:inline-flex;align-items:center;min-height:28px;padding:2px 0;color:#555;font-size:12px;margin-left:auto;white-space:nowrap}
+.wa-access-role.is-pending{color:#986915}
+.wa-access-you{color:var(--access-muted);font-size:11px;white-space:nowrap;margin-left:-5px}
+.wa-access-prose{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.wa-access-caption{display:block;margin-top:12px;color:var(--access-muted);font-size:11px}
+.wa-access-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;color:var(--access-muted);font-size:12px}
+.wa-access :is(textarea,select,input){width:100%;min-width:0;border:1px solid #d9d9d9;border-radius:6px;padding:7px 9px;background:#fff;color:var(--access-ink);font-size:12px;line-height:1.5}
+.wa-access textarea{resize:vertical;min-height:64px;max-height:150px}
+.wa-access :is(textarea,input)::placeholder{color:#999}
+.wa-access select{min-height:32px}
+.wa-access-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.wa-access button.wa-access-primary{background:var(--access-blue);border-color:transparent;color:white;font-weight:500}
+.wa-access button.wa-access-primary:hover:not(:disabled){background:#007be5}
+.wa-access button.wa-access-text{border-color:transparent;background:transparent;padding:4px 5px;color:#555}
+.wa-access button.wa-access-text:hover:not(:disabled){background:#f0f0f0}
+.wa-access button.wa-access-text-danger{border-color:transparent;color:#d83b31;background:transparent}
+.wa-access button.wa-access-danger{background:#d83b31;border-color:transparent;color:white}
+.wa-access button.wa-access-danger:hover:not(:disabled){background:#bf2e25}
+.wa-access-confirm{margin:8px 0;padding:10px 12px;border:1px solid #f2d4cc;background:#fff7f5;border-radius:6px}
+.wa-access-confirm p{margin:0;color:#813c2c;font-size:12px}
+.wa-access-copy{display:flex;align-items:center;gap:8px}
+.wa-access-copy button{flex:0 0 auto}
+.wa-access-footer{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px 20px;border-top:1px solid var(--access-line);background:#fff}
+.wa-access-footer-links{display:flex;gap:6px}
+.wa-access-footer-links button{font-size:11px}
+.wa-access-footer>.wa-access-primary{margin-left:auto;min-width:90px}
+.wa-access-manual-link{flex:0 0 100%;display:grid;gap:5px;font-size:11px;color:var(--access-muted)}
+.wa-access-invite-form{display:flex;gap:8px;align-items:center}
+.wa-access-invite-form input{flex:1 1 auto;height:34px}
+.wa-access-invite-form select{width:80px;flex:0 0 80px;border:0;padding:5px 3px;font-size:12px}
+.wa-access-invite-form button{flex:0 0 auto;height:34px}
+.wa-access-invite-hint{font-size:11px;color:var(--access-muted);margin:6px 0 16px}
+.wa-access-general-row{display:flex;align-items:center;gap:10px;min-height:48px;margin:0 0 6px}
+.wa-access-scope-icon{display:flex;align-items:center;justify-content:center;width:28px;height:28px;flex:0 0 28px;color:#555}
+.wa-access-general-copy{min-width:0;flex:1 1 auto}
+.wa-access-general-copy strong{font-size:12px;font-weight:400}
+.wa-access-general-copy small{display:block;color:var(--access-muted);font-size:11px}
+.wa-access-member-list{max-height:256px;overflow-y:auto;overscroll-behavior:contain}
+.wa-access-member{padding:7px 0}
+.wa-access-member-role{margin-left:auto;max-width:90px;flex:0 0 90px;border-color:transparent!important;padding:4px 2px!important}
+.wa-access-privacy{margin:12px 0 0;font-size:11px;color:var(--access-muted)}
+.wa-access-pending{padding:12px;margin:12px 0;background:#f5faff;border:1px solid #dfedfa;border-radius:6px}
+.wa-access-pending-row{margin:10px 0}
+.wa-access-inline-actions{display:flex;gap:6px;margin-left:auto}
+.wa-access-inline-actions button{padding:3px 8px;min-height:28px}
+.wa-access-request-reason{margin:4px 0 0 36px;color:var(--access-muted);font-size:11px;overflow-wrap:anywhere;max-height:64px;overflow:auto}
+.wa-access-my-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;background:#f5faff;border:1px solid #dfedfa;border-radius:6px;margin-bottom:16px}
+.wa-access-my-status strong{font-size:12px;font-weight:500}
+.wa-access-my-status small{display:block;color:var(--access-muted);font-size:11px}
+.wa-access-my-status button{flex:0 0 auto;border-color:#c9dff2;background:#fff;color:#007be5}
+.wa-access-trigger{position:relative}
+#collaborationButton.wa-access-trigger{background:#0d99ff;border:1px solid transparent;color:#fff;border-radius:6px;padding:0 13px;height:32px}
+#collaborationButton.wa-access-trigger:hover{background:#007be5}
+.wa-access-badge{width:16px;height:16px;flex:0 0 16px;display:inline-flex;justify-content:center;align-items:center;border-radius:50%;background:#fff1cc;color:#805800;border:1px solid #efd091;font:700 11px/1 sans-serif}
+.wa-access-trigger[data-access-state="offline"] .wa-access-badge{background:#eee;color:#555;border-color:#ccc}
+@media(max-width:600px){
+  .wa-access{width:calc(100vw - 24px);max-height:calc(100dvh - 32px);border-radius:10px}
+  .wa-access-header{padding:14px 16px 11px}
+  .wa-access-body{padding:14px 16px 12px}
+  .wa-access-status{padding:10px 16px 0}
+  .wa-access-footer{padding:10px 16px}
+  .wa-access-invite-form{gap:5px;flex-wrap:wrap}
+  .wa-access-invite-form input{flex-basis:calc(100% - 150px);min-width:120px}
+  .wa-access-invite-form select{width:74px;flex-basis:74px}
+  .wa-access-person strong{max-width:calc(100vw - 220px)}
+  .wa-access-copy{flex-wrap:wrap}
+  .wa-access-copy input{flex:1 1 190px}
+}

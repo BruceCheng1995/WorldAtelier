@@ -3,13 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=24.0.0"},
-  "scripts": {
-    "start": "node services/control-plane/server.mjs",
-    "build:portal": "npm --prefix apps/portal run build",
-    "build:runtime": "node tools/build-runtime.mjs",
-    "test": "node --test tests/e2e/central.test.mjs"
+  "engines": {
+    "node": ">=24.0.0"
   },
-  "dependencies": {"ws": "^8.18.3"},
-  "devDependencies": {"@playwright/test": "^1.55.0"}
+  "scripts": {
+    "start": "node tools/start-workspace.mjs",
+    "build:runtime": "node tools/build-runtime.mjs",
+    "test": "node --test tests/e2e/central.test.mjs",
+    "start:preview": "node tools/start-workspace.mjs",
+    "dev": "node tools/start-workspace.mjs",
+    "build:preview": "node tools/build-model-preview.mjs",
+    "admin:bind": "node tools/configure-admin.mjs",
+    "test:admin": "node --test tests/creation/admin-independent.test.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "three": "0.185.1",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
 }

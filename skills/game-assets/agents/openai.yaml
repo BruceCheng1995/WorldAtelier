@@ -1,0 +1,6 @@
+interface:
+  display_name: "游戏资产搜集与制作"
+  short_description: "搜集免费模型和图片，用 Godot、Pillow、Blender 制作并导入游戏资产"
+  default_prompt: "使用 $game-assets 为当前游戏搜集或制作合适的免费资产，完成导入、适配与来源记录。"
+policy:
+  allow_implicit_invocation: true

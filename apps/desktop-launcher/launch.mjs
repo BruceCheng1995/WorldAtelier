@@ -6,7 +6,8 @@ import {playOffline} from './workspace.mjs';
 
 export async function launch(options={}){
   if(options.offline)return playOffline({file:options.offline,edited:!!options.edited,newSave:!!options['new-save'],options});
-  const server=String(options.server??'http://127.0.0.1:48900').replace(/\/$/,''),token=process.env.WORLD_ATELIER_TOKEN;
+  if(!options.server)throw Error('中央门户已退役；日常使用 npm start 打开48910工作台。历史在线客户端测试须显式指定 --server=URL。');
+  const server=String(options.server).replace(/\/$/,''),token=process.env.WORLD_ATELIER_TOKEN;
   if(!token||!options.project)throw Error('Online launch requires WORLD_ATELIER_TOKEN and --project=ID. For a complete downloaded package use --offline=/path/workspace.json.');
   const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),cacheDir=resolve(options.cache??join(root,'.local/client-cache'));
   const logDir=resolve(options['log-dir']??join(cacheDir,'sessions',`${Date.now()}-${randomUUID().slice(0,8)}`));

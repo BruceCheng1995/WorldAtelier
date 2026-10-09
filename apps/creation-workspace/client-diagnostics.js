@@ -1,0 +1,10 @@
+import { randomUUID } from './client-platform.js';
+/** Bounded per-login queue. Observations retain their original viewport pins. */
+export class ClientDiagnostics {
+  constructor({request}){this.request=request;this.queue=[];this.user=null;this.connected=false;this.generation=0;this.recent=new Map();this.listener=e=>this.observe(e.detail);window.addEventListener('wa-preview-diagnostic',this.listener);this.error=e=>this.observe({code:'client_script',message:String(e.message??e.reason?.message??'工作台脚本出现异常'),client_id:'workspace'});window.addEventListener('error',this.error);window.addEventListener('unhandledrejection',this.error);}
+  setUser(id){if(id===this.user)return;this.user=id;this.queue=[];this.recent.clear();this.generation++;}
+  setConnection(connected){this.connected=connected;if(connected)this.flush();}
+  observe(input){if(!this.user||!input?.code)return;const payload={...input,event_id:randomUUID()};const key=JSON.stringify({...input,message:undefined});if(!input.recovered&&Date.now()-(this.recent.get(key)??0)<10000)return;this.recent.set(key,Date.now());if(this.recent.size>100)this.recent.delete(this.recent.keys().next().value);this.queue.push(payload);if(this.queue.length>40)this.queue.shift();this.flush();}
+  async flush(){if(this.sending||!this.user||!this.connected)return;this.sending=true;const generation=this.generation;try{while(this.queue.length&&this.connected&&this.user&&generation===this.generation){const payload=this.queue[0],{recovered,...body}=payload;try{await this.request(recovered?'diagnostics/recovered':'diagnostics',{method:'POST',body});}catch(error){if(!error.status||error.status>=500)break;}if(generation===this.generation&&this.queue[0]===payload)this.queue.shift();}}finally{this.sending=false;if(generation!==this.generation)this.flush();}}
+  dispose(){this.setUser(null);window.removeEventListener('wa-preview-diagnostic',this.listener);window.removeEventListener('error',this.error);window.removeEventListener('unhandledrejection',this.error);}
+}

@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {resolve,join} from 'node:path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {snapshotNativeEditorRuntime} from '../../services/creation/native-editor-build.mjs';
+import {assembleNativeEditorProject} from '../../tools/native-editor/assemble-native-editor.mjs';
+
+const exec=promisify(execFile);
+test('fixed native runtime includes prefab ghost helper through actual assembly and exported pack',{timeout:120000},async t=>{
+  const root=resolve(import.meta.dirname,'../..'),data=await mkdtemp(join(tmpdir(),'atelier-ghost-package-'));
+  t.after(()=>rm(data,{recursive:true,force:true}));
+  const runtime=join(data,'runtime'),source=join(data,'source'),project=join(data,'project');
+  const out=join(root,'.local/creation-verification/prefab-drag-package',new Date().toISOString().replaceAll(':','-'));
+  await mkdir(out,{recursive:true});await mkdir(source);
+  const fixed=snapshotNativeEditorRuntime(root,runtime);
+  assert.ok(fixed.files.some(file=>file.path==='prefab_placement_preview.gd'));
+  await writeFile(join(source,'project.godot'),'config_version=5\n[application]\nconfig/name="Ghost package fixture"\n');
+  await writeFile(join(source,'main.tscn'),'[gd_scene load_steps=2 format=3]\n[sub_resource type="BoxMesh" id="mesh"]\n[node name="Main" type="MeshInstance3D"]\nmesh = SubResource("mesh")\n');
+  const scene={document_schema:'creation-native-1',document_id:'package/main',source_revision:'fixed',source_identity:'fixed-identity',native_scene_path:'res://main.tscn',objects:[{id:'main',native_path:'.'}],seq:1};
+  const godot=process.env.GODOT_BIN??'/Applications/Godot.app/Contents/MacOS/Godot';
+  const result=await assembleNativeEditorProject({sourceDirectory:source,destinationDirectory:project,runtimeDirectory:runtime,runtimeFiles:fixed.files.map(file=>file.path).filter(path=>/\.(gd|gdshader|gdshaderinc|tscn|tres|ttf|otf|json)$/.test(path)),initialScene:scene,godotPath:godot,enforceIsolation:false});
+  assert.match(await readFile(join(project,'atelier_editor/native_main.gd'),'utf8'),/preload\("res:\/\/atelier_editor\/prefab_placement_preview.gd"\)/);
+  assert.equal(await readFile(join(project,'atelier_editor/prefab_placement_preview.gd'),'utf8'),await readFile(join(runtime,'prefab_placement_preview.gd'),'utf8'));
+  const run=async(args)=>{const r=await exec(godot,args,{timeout:60000,maxBuffer:8*1024*1024});assert.doesNotMatch(r.stdout+r.stderr,/SCRIPT ERROR|Parse Error|SHADER ERROR|ERROR:/);return r.stdout+r.stderr;};
+  const imported=await run(['--headless','--editor','--path',project,'--import']);
+  const pack=join(data,'ghost.pck');
+  const exported=await run(['--headless','--path',project,'--export-pack','Web',pack]);
+  const boot=await run(['--headless','--path',data,'--main-pack',pack,'--quit-after','8']);
+  assert.match(boot,/PREVIEW_LOADED/);
+  await writeFile(join(out,'result.json'),JSON.stringify({ok:true,runtime_sources:fixed.files,source_identity:result.config.source_identity,scope:'real fixed snapshot, native editor assembly, Web resource pack export, and Godot boot from the exported pack; no browser'},null,2));
+  await writeFile(join(out,'godot.log'),imported+exported+boot);
+  console.log('Prefab ghost package evidence: '+out);
+});

@@ -21,8 +21,9 @@ import {
   statSync,
   mkdirSync,
   writeFileSync,
+  realpathSync,
 } from "node:fs";
-import { resolve, join, extname, dirname } from "node:path";
+import { resolve, join, extname, dirname, basename, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Storage } from "./storage.mjs";
 import { validateContent, mergeContent, digest } from "./content.mjs";
@@ -31,10 +32,32 @@ import { Builds } from "./builds.mjs";
 import { Worlds } from "../world-orchestrator/worlds.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+// Retained only for historical protocol tests, never as a second product server.
+const port = Number(process.env.WORLD_ATELIER_PORT);
+if (!Number.isInteger(port) || port < 1 || port > 65535 ||
+    [48900, 48910].includes(port) || !process.env.WORLD_ATELIER_DATA) {
+  console.error("中央门户已退役。请运行 npm start，打开 http://127.0.0.1:48910/creation-workspace.html。历史协议测试必须显式指定独立 WORLD_ATELIER_PORT 和 WORLD_ATELIER_DATA。");
+  process.exit(1);
+}
+function canonicalPath(path) {
+  try { return realpathSync(path); }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    return join(canonicalPath(dirname(path)), basename(path));
+  }
+}
 const data = resolve(
-  process.env.WORLD_ATELIER_DATA ?? join(root, ".local/server"),
+  process.env.WORLD_ATELIER_DATA,
 );
-const port = Number(process.env.WORLD_ATELIER_PORT ?? 48900);
+const canonicalData = canonicalPath(data);
+for (const protectedPath of [".local/server", ".local/model-preview"]) {
+  const protectedData = canonicalPath(join(root, protectedPath));
+  if (canonicalData === protectedData || canonicalData.startsWith(protectedData + sep) ||
+      protectedData.startsWith(canonicalData + sep)) {
+    console.error("历史协议测试不能使用或覆盖正式及历史服务数据，请指定独立 WORLD_ATELIER_DATA。");
+    process.exit(1);
+  }
+}
 const publicAddress = clientAddress(port, process.env.WORLD_ATELIER_PUBLIC_URL);
 const bindHost = process.env.WORLD_ATELIER_BIND_HOST ?? "127.0.0.1";
 const godot =
@@ -294,11 +317,10 @@ const server = http.createServer(async (req, res) => {
       return staticFile(res, inside(runtimeRoot, p.slice(1).join("/")), true);
     }
     if (p[0] !== "api" && p[0] !== "content") {
-      const base = join(root, "apps/portal/dist"),
-        file = inside(base, p.join("/"));
-      if (existsSync(file) && statSync(file).isFile())
-        return staticFile(res, file);
-      return staticFile(res, join(base, "index.html"));
+      return json(res, 410, {
+        error: "中央门户已退役；此服务仅供历史协议测试。",
+        workspace_url: "http://127.0.0.1:48910/creation-workspace.html",
+      });
     }
     if (p[1] === "auth" && method === "POST") {
       const b = await body(req);

@@ -4,8 +4,9 @@ import {parseArgs} from './runtime.mjs';
 import {checkoutWorkspace,pushWorkspace,resolveWorkspace,playOffline,refreshWorkspaceAssets} from './workspace.mjs';
 import {createNativeEditor} from './native-editor.mjs';
 const [command,...values]=process.argv.slice(2),args=parseArgs(values),directory=resolve(args.dir??'.local/workspace');
-const options={directory,server:args.server??'http://127.0.0.1:48900',token:process.env.WORLD_ATELIER_TOKEN,project:args.project,branch:args.branch??'main',message:args.message,world:args.world,build:!args['no-build'],runtimeHash:args['runtime-hash']};
+const options={directory,server:args.server,token:process.env.WORLD_ATELIER_TOKEN,project:args.project,branch:args.branch??'main',message:args.message,world:args.world,build:!args['no-build'],runtimeHash:args['runtime-hash']};
 try{
+  if(['checkout','push','watch','refresh-assets'].includes(command)&&!args.server)throw Error('中央门户已退役；日常使用 npm start 打开48910工作台。历史协议工具须显式指定 --server=URL。');
   if(command==='checkout'){if(!args.project)throw Error('--project=ID required');await checkoutWorkspace(options);}
   else if(command==='play'){await playOffline({file:join(directory,'workspace.json'),edited:!!args.edited,newSave:!!args['new-save'],options:args});}
   else if(command==='resolve'){if(!args['accept-current'])throw Error('Inspect local-conflicts.json, edit content.json, then use resolve --accept-current to accept your full resolution');await resolveWorkspace(directory);console.log('已记录人工冲突解决；尚未再次上传。');}

@@ -1,0 +1,95 @@
+import assert from 'node:assert/strict';
+import {join} from 'node:path';
+
+/** Real workspace gestures and observations from its actual Godot iframe.
+ * No fabricated messages, ACKs or application DOM are used in these checks.
+ */
+export async function checkActivePrefabWorkspace({page,origin,projectId,revision,evidenceDirectory}){
+  const failures=[];
+  page.on('pageerror',error=>failures.push(error.message));
+  page.on('console',message=>{if(/SCRIPT ERROR|Parse Error|RuntimeError|PREFAB_LAB_FAILED/.test(message.text()))failures.push(message.text());});
+  await page.addInitScript(()=>{window.activeLabPackets=[];window.activeLabState=null;addEventListener('message',event=>{if(event.data?.type==='prefab_test_state'){activeLabPackets.push(event.data);window.activeLabState=event.data;}});});
+  await page.goto(origin+'/creation-workspace.html#/games/'+projectId+'/branches/main');
+  await page.locator('#workbench').waitFor({state:'visible',timeout:45000});
+  await page.locator('[data-explorer="prefabs"]').click();
+  await page.locator('[data-prefab-lab="pea"]').click();
+  const lab=page.locator('#prefabLabHost .prefab-lab'),inspector=lab.getByRole('complementary',{name:'对象主动行为'});
+  await lab.waitFor({state:'visible'});
+  await page.waitForFunction(()=>activeLabState?.actions?.length===9,{},{timeout:180000});
+  assert.equal(await lab.getByRole('tab',{name:'动画',exact:true}).getAttribute('aria-selected'),'true');
+  assert.equal(await lab.getByRole('button',{name:'选择动画 idle',exact:true}).isVisible(),true);
+  assert.equal(await lab.getByRole('button',{name:'选择动画 shoot',exact:true}).isVisible(),true);
+  assert.equal(await lab.getByRole('button',{name:'播放动画',exact:true}).isDisabled(),true);
+  for(const name of ['External damage','Remove target','Restore target','Unclassified legacy action']){
+    assert.equal(await inspector.getByRole('button',{name,exact:true}).count(),0,'external action must not enter the active inspector');
+    assert.equal(await lab.getByRole('button',{name,exact:true}).isVisible(),false,'scene action is closed initially');
+  }
+  assert.equal(await lab.getByRole('button',{name:'Idle controller off',exact:true}).getAttribute('aria-pressed'),'true');
+  await lab.getByRole('button',{name:'Idle controller on',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.controller_mode==='automatic'&&activeLabState.selection.action_ids.includes('idle_on'));
+  assert.equal(await lab.getByRole('button',{name:'Idle controller on',exact:true}).getAttribute('aria-pressed'),'true');
+  await lab.getByRole('tab',{name:'状态',exact:true}).click();
+  await lab.getByRole('button',{name:'Angry state',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.stance==='angry'&&activeLabState.selection.action_ids.includes('angry'));
+  assert.equal(await lab.getByRole('button',{name:'Angry state',exact:true}).getAttribute('aria-pressed'),'true');
+  await lab.getByRole('tab',{name:'技能',exact:true}).click();
+  assert.equal(await lab.locator('.prefab-lab-timeline').isVisible(),false,'native timeline belongs to the animation tab');
+  await lab.getByRole('button',{name:'Fire pea',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.target_hp===75,{},{timeout:12000});
+  await lab.getByRole('button',{name:'Drop sun',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.drops===1);
+  const beforeDialog=await page.evaluate(()=>activeLabState.tick);
+  await lab.getByRole('button',{name:'场景工具',exact:true}).click();
+  const dialog=lab.getByRole('dialog',{name:'预览辅助工具'});
+  await page.waitForFunction(tick=>activeLabState.tick>tick,beforeDialog);
+  assert.equal(await page.evaluate(()=>activeLabState.paused),false,'opening scene tools does not pause gameplay');
+  for(const name of ['External damage','Remove target','Restore target','Unclassified legacy action'])assert.equal(await dialog.getByRole('button',{name,exact:true}).isVisible(),true);
+  assert.deepEqual((await dialog.locator('.prefab-lab-group-label').allTextContents()).sort(),['外部影响','未分类动作','靶子布置'].sort());
+  for(const name of ['Fire pea','Drop sun','Angry state','Idle controller on'])assert.equal(await dialog.getByRole('button',{name,exact:true}).count(),0);
+  await dialog.getByRole('button',{name:'External damage',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.subject_hp===75);
+  assert.match(await dialog.locator('.prefab-lab-utility-feedback').innerText(),/External damage · 已执行/);
+  await dialog.getByRole('button',{name:'Remove target',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.target_hp===0&&activeLabState.selection.blocked_actions.shoot);
+  await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+  assert.equal(await lab.getByRole('button',{name:'Fire pea',exact:true}).isDisabled(),true);
+  assert.match(await lab.getByRole('button',{name:'Fire pea',exact:true}).innerText(),/Place a target before firing/);
+  await lab.getByRole('button',{name:'配置靶子',exact:true}).click();
+  await dialog.getByRole('button',{name:'Restore target',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.target_hp===100&&!activeLabState.selection.blocked_actions.shoot);
+  await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+  assert.equal(await lab.getByRole('button',{name:'Fire pea',exact:true}).isEnabled(),true);
+  await lab.getByRole('button',{name:'测试记录',exact:true}).click();
+  assert.match(await dialog.locator('.prefab-lab-observations').innerText(),/subject_hp/);
+  await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+  await lab.getByRole('tab',{name:'动画',exact:true}).click();
+  await lab.getByRole('button',{name:'选择动画 shoot',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.current?.name==='shoot');
+  assert.equal(await lab.getByRole('combobox',{name:'动画',exact:true}).inputValue(),'shoot');
+  await lab.getByLabel('动画时间（秒）',{exact:true}).fill('0.25');
+  await lab.getByLabel('动画时间（秒）',{exact:true}).press('Tab');
+  await page.waitForFunction(()=>Math.abs(activeLabState.time-.25)<.01&&activeLabState.paused);
+  assert.equal(await page.evaluate(()=>activeLabState.observations.method_calls),0,'pose sampling must not run method tracks');
+  assert.equal(await lab.locator('.animation-track').count(),2);
+  await lab.getByRole('combobox',{name:'动画速度',exact:true}).selectOption('0.25');
+  await page.waitForFunction(()=>activeLabState.playing&&activeLabState.time>.27);
+  await lab.getByRole('button',{name:'暂停动画',exact:true}).click();
+  await page.waitForFunction(()=>!activeLabState.playing);
+  const posed=await page.evaluate(()=>structuredClone(activeLabState));
+  assert.equal(posed.observations.method_calls,0);assert.notEqual(posed.observations.subject_scale[0],1);
+  await lab.getByRole('button',{name:'单帧',exact:true}).click();
+  await page.waitForFunction(tick=>activeLabState.tick===tick+1&&activeLabState.paused,posed.tick);
+  const dimensions=await lab.evaluate(node=>{const view=node.querySelector('.prefab-lab-viewport').getBoundingClientRect(),panel=node.querySelector('.prefab-lab-inspector').getBoundingClientRect();return {width:node.clientWidth,scroll:node.scrollWidth,viewport_width:view.width,inspector_width:panel.width};});
+  assert.ok(dimensions.scroll<=dimensions.width+1,JSON.stringify(dimensions));
+  assert.ok(dimensions.viewport_width>dimensions.inspector_width,JSON.stringify(dimensions));
+  await page.screenshot({path:join(evidenceDirectory,'active-workspace-native-timeline.png')});
+  await lab.getByRole('button',{name:'重置',exact:true}).click();
+  await page.waitForFunction(()=>activeLabState.observations.target_hp===100&&activeLabState.observations.subject_hp===100&&activeLabState.observations.shots===0&&activeLabState.observations.drops===0,{},{timeout:90000});
+  assert.equal(await page.evaluate(()=>activeLabState.source_revision),revision);
+  await lab.getByRole('button',{name:'返回编辑',exact:true}).click();
+  await page.locator('#prefabLabHost').waitFor({state:'hidden'});
+  assert.equal(await page.locator('#prefabLabHost iframe').count(),0);
+  assert.equal(await page.locator('[data-prefab-lab="pea"]').isVisible(),true);
+  assert.deepEqual(failures,[]);
+  return {ok:true,revision,dimensions,observed:posed,checks:['native clips are discoverable in the animation tab','intrinsic abilities, states and controllers stay separate from passive, fixture and legacy actions','native controller and state selections are observed and highlighted','actual projectile hit and sun drop are delivered','scene tools stay independent and keep game running','real external damage and target removal drive dynamic disabled reasons and target recovery','native clip selection, pose-only seek, playback speed, pause and physics step work','reset restores original runtime state and return disposes the iframe'],failures};
+}

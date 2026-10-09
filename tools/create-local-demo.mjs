@@ -6,7 +6,11 @@ import {resolve,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createApi,atomicWrite,pause} from '../apps/desktop-launcher/runtime.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const server='http://127.0.0.1:48900',directory=join(root,'.local/demo');
+if(!process.env.WORLD_ATELIER_LEGACY_DEMO_URL||!process.env.WORLD_ATELIER_LEGACY_DEMO_DATA){
+  console.error('中央门户演示已退役。请运行 npm start，在48910工作台创建游戏。历史测试须显式指定 WORLD_ATELIER_LEGACY_DEMO_URL 和 WORLD_ATELIER_LEGACY_DEMO_DATA。');
+  process.exit(1);
+}
+const server=process.env.WORLD_ATELIER_LEGACY_DEMO_URL.replace(/\/$/,''),directory=resolve(process.env.WORLD_ATELIER_LEGACY_DEMO_DATA);
 await mkdir(directory,{recursive:true,mode:0o700});
 let record;try{record=JSON.parse(await readFile(join(directory,'setup.json'),'utf8'));}catch{record={accounts:[],steps:{},created_at:Date.now()};}
 const save=async()=>{await writeFile(join(directory,'setup.json'),JSON.stringify(record,null,2),{mode:0o600});};

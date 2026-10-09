@@ -2,6 +2,10 @@
 
 状态：目标协议。已有本地服务实现，实际字段见 [实现契约](../packages/contracts/IMPLEMENTATION.md)，已执行范围见 [验收记录](ACCEPTANCE.md)。未实现的分布式部署和私有权限视图不由本地共享世界测试推定。
 
+## 最新创作协议扩展
+
+共享文档事务、场景/预制件资源、长期 CreatorSession、Agent 目标和个人检查语义见 [CREATION-PROTOCOL](CREATION-PROTOCOL.md)，该文件是待实现契约。本文的 `preview-frozen` 创建独立世界用于复现，**不能替代原在线世界的个人检查暂停**。检查仅冻结自己的观察投影，原权威和其他玩家继续运行。
+
 ## 1. 核心数据对象
 
 | 对象 | 关键字段与约束 |

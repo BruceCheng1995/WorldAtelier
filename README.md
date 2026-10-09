@@ -1,19 +1,24 @@
 # 世界工坊 · World Atelier
 
-从中央服务器选择主干或分支，取得匹配的客户端与世界状态，进入游戏；在网页、Godot 编辑器或离线工作区制作内容，再提交回对应分支。
+多人在同一世界里编辑场景、发现全部预制件并独立编辑，通过长期 Agent 会话生成模型与逻辑，在当前网页视口 Play Godot 游戏。个人暂停只固定自己的检查视图，其他玩家继续玩。
 
-**本机完整开发与六项验收已交付，游戏版本 0.1.3。** 真实网页、桌面、离线和中央权威端均已运行；证据、精确版本与风险见 [验收报告](docs/VALIDATION-REPORT.md) 和 [验收矩阵](docs/ACCEPTANCE.md)。这是从头建立的新工程，旧工程记录不计入验收。
+**当前可用入口是 [48910 协作工作台](http://127.0.0.1:48910/creation-workspace.html)**，已接中央文档、真实 Codex、Godot Web 及真实模型。最新运行时 0.3.0 / 1dde489c；三个指定内容和双用户操作已实际回归，[当前实现与证据](docs/COLLABORATIVE-CREATION-IMPLEMENTATION.md)。个人检查中直接编辑、原生/离线往返等仍未交付，不能据此称全产品完成。原0.1.3/48900六项示例保留为 [历史证据](docs/VALIDATION-REPORT.md)。
 
-先阅读 [总体架构](docs/ARCHITECTURE.md) 和 [协议设计](docs/PROTOCOL.md)。
+后续开发先读 [创作工作台设计](docs/CREATION-WORKSPACE.md)、[创作协议](docs/CREATION-PROTOCOL.md) 和 [新的验收旅程](docs/CREATION-ACCEPTANCE.md)。[可点击设计稿](docs/design/creation-workspace.html)仅供检查布局和交互，不接入 Godot、多人服务或 Agent 执行。
+
+正式工作台通过 `npm run dev` 默认开放局域网连接和注册，启动器会打印当前网卡的共享地址。注册用户可直接浏览、试玩现有游戏，创作需拥有者邀请授权；私人会话保持隔离。启动配置、临时关闭与单线程 HTTP 兼容边界见 [本机与局域网启动说明](docs/LOCAL-DEVELOPMENT.md)。
 
 ```text
 apps/
-  portal/                 网页分支入口、协作编辑、下载和实际 Web 游玩
-  desktop-launcher/       客户端版本缓存、校验、启动与会话跳转
+  creation-workspace/     当前协作工作台：场景树、Godot视口、属性、会话抽屉
+  desktop-launcher/       历史协议与离线包兼容工具（不是产品入口）
 services/
-  control-plane/          身份、工程、分支、发布、存储元数据与任务
+  creation/              当前创作文档、协作、真实Agent、世界与验收记录
+  preview/               48910工作台与固定Godot客户端/模型资源服务
+  control-plane/         共用存储模块与隔离的历史协议测试代码
   world-orchestrator/     权威进程代次、检查点、休眠、升级与恢复
 runtimes/
+  model-preview/         当前Godot Web呈现和权威玩法运行时
   godot/                  同一 Godot 工程的客户端、权威端与共享玩法
 tools/                    真实导出、外部编辑、备份与游戏验证工具
 packages/
@@ -25,47 +30,31 @@ research/godot/4.6-stable/ 官方引擎研究资料，源码及压缩包不进�
 .local/                   本地验证记录，以及后续服务数据、缓存和测试世界
 ```
 
-当前实现采用 Node.js、SQLite、Vue/Vite 与 Godot 4.6。每个在线世界由对应发行中的独立 Godot 程序执行权威玩法，中央服务保存确认后的完整状态。源码、可玩发行和在线世界分别记录版本。
+当前实现采用 Node.js、SQLite、原生 Web 界面与 Godot 4.6。每个在线世界由对应发行中的独立 Godot 程序执行权威玩法，中央服务保存确认后的完整状态。源码、可玩发行和在线世界分别记录版本。
 
 客户端切换的验收是版本匹配、状态接续和控制权正确；普通兼容内容仍争取在当前游戏内热更新。网页入口必须实际执行游戏玩法，只有 Three.js 模型预览不算完成。
 
-## 本地运行
+## 真实模型工作台
 
-当前实际验证环境是 macOS、Node.js 26、Godot 4.6 和 Chrome。构建需要 Python 3、Godot 4.6 的 macOS/Web 导出模板；`GODOT_BIN` 可指定引擎，默认使用 `/Applications/Godot.app/Contents/MacOS/Godot`。原始 Blender 工程和生成脚本已保留，正常运行无需重新生成模型。
+运行 `npm run build:preview` 后执行 `npm run start:preview`，打开 <http://127.0.0.1:48910/creation-workspace.html>。使用自己的账号进入游戏/分支，点选场景对象编辑；W/E/R移动、旋转、缩放，F聚焦，Ctrl临时吸附、Shift精细调整，Enter提交数值、Esc取消。聊天从右侧抽屉打开，可附当前对象与精确坐标并发送给真实Codex；消息、附件和已确认编辑由中央服务持久保存。
+
+点击Play在当前视口运行真实Godot。保存源稿与应用到世界分开：新内容先验证并应用，不能默默玩旧版本。个人检查只冻结自己的画面。主视口和对象预览均加载真实GLB，聊天关闭后不占视口。[3D操作说明](docs/3D-INTERACTION.md)与[当前回归](.local/creation-verification/browser/1dde-FINAL-REGRESSION.md)可直接核对。本机演示主干仍保留flat源格式；层级/固定实例升级的实验入口须显式设置 `WORLD_ATELIER_ENABLE_HIERARCHY=1`，已有场景不会自动迁移。独立48921测试已操作新格式，不把测试数据当作演示主干。
+
+## 本地运行
 
 ```sh
 npm install
-npm --prefix apps/portal install
-npm run build:portal
-npm run build:runtime
 npm start
 ```
 
-打开 `http://127.0.0.1:48900`，注册账号、建立工程、构建首个可玩版本并进入世界。另一个浏览器账号注册后，由工程拥有者加入成员即可共同编辑和游玩。
+唯一产品入口：[世界工坊](http://127.0.0.1:48910/creation-workspace.html)。`npm start`、`npm run dev`、`npm run start:preview` 使用同一个带冲突检查的启动器；已运行时复用原服务。日常只需启动一次，终端保持打开，在启动服务的终端按 Ctrl+C 停止。
 
-游戏包含观测站、园林、铸炉和城塞四个区域，227 个创作对象、46 个敌人及首领。WASD 移动，Space 攻击，Shift 闪避，E 交互，Q 在锻造台升级，Tab 展开地图。在线奖励与进度以中央权威结果为准。
+48910 同时提供界面、创作 API、Agent 会话和 Godot Web；无需另开后端。Godot 构建与执行需要 Godot 4.6 及相应导出模板；首次准备编辑视口可运行 `npm run build:preview`。玩法启动、导出与 Agent 固定工程见 [统一游戏工程](docs/UNIFIED-GAME-RUNTIME.md)。
 
-## 验证与状态
+正式数据位于 `.local/model-preview/`，包括既有游戏、账号、会话和资产。启动、局域网、权限与数据隔离配置见 [本机开发说明](docs/LOCAL-DEVELOPMENT.md)。
 
-```sh
-node --test tests/content.test.mjs
-node --test tests/e2e/central.test.mjs
-node --test tests/e2e/live-content.test.mjs
-WORLD_ATELIER_WEB_CAMPAIGN=1 node tests/web-play.mjs
-```
+## 旧中央门户已退役
 
-独立协议驱动共用隔离端口 48921，必须顺序运行；真实网页驱动用 48923。驱动创建独立账号、项目、数据目录和世界，不清空正常服务。详见 [独立测试说明](tests/e2e/README.md)。
+2026-09-08 用户决定只保留协作创作工作台。48900 服务和旧门户前端已撤下，`build:portal` 已移除；不再维护第二个产品入口。旧数据库、发行文件和历史证据保留，未迁移或清空当前创作数据。
 
-兼容参数、GLB 和受约束的行为模块可以在当前世界应用；需要不同程序的版本通过最终检查点和新权威代次接续。行为模块只支持明确的规则接口，不是任意脚本的安全沙箱。当前运行与证据均在本机，尚未部署公共网络服务。
-
-服务数据默认位于 `.local/server`，不可变程序在 `.local/artifacts`。`WORLD_ATELIER_DATA`、`WORLD_ATELIER_PORT` 和 `WORLD_ATELIER_RUNTIME_ROOT` 可用于独立环境。发行及其资产当前全部保留，没有自动删除历史版本的清理任务。
-
-本地管理员可用 `tools/backup.mjs create --data=目录 --out=新备份目录` 保存一致的数据库与被引用资产、客户端；`restore --from=备份 --data=新目录 --runtime-root=新产物目录` 恢复到独立位置。恢复拒绝覆盖已有数据库，备份包含账号认证数据，应按服务数据保管。
-
-## 已建立的本机演示
-
-本轮交付保留一个可继续编辑的「星屿远征 · 共享开发工程」，含 main、scene-lab 两个内容分支与各自的世界。示例账号与本机入口见 Git 忽略的 `.local/DEMO-ACCESS.md`；不在源码中内置通用密码。`node tools/create-local-demo.mjs` 通过正常授权 API 建立并记录这个工程，可重入且不会删除其他工程。
-
-## 外部地址配置
-
-反向代理部署时，显式设置 `WORLD_ATELIER_PUBLIC_URL=https://你的域名`；客户端票据使用同一外部 origin 对应的 `wss://`，避免外部用户误连自己的 localhost。默认监听 `127.0.0.1:48900`；需要另一个绑定地址时设置 `WORLD_ATELIER_BIND_HOST`。反向代理须转发 HTTP 与 WebSocket，并保留本服务的响应头；HTTPS 证书由部署环境提供。该配置不意味着本轮已经发布公网服务，公网 TLS、远程网络和容量仍需在目标环境验收。
+`services/control-plane/storage.mjs` 仍被当前创作服务复用。其余历史协议代码用于隔离技术测试；旧服务入口要求显式指定非 48900/48910 端口和独立数据目录，拒绝使用正式及旧服务数据，并且不再提供门户页面。`npm test` 当前仍是历史中央协议测试；其通过不能代表创作工作台验收。测试边界见 [历史测试说明](tests/e2e/README.md)，当前产品验证按 [创作验收](docs/CREATION-ACCEPTANCE.md)选择与改动相关的检查。

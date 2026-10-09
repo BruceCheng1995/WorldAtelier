@@ -1,0 +1,1702 @@
+{
+  "schema": 2,
+  "format": "creation-runtime-hierarchy-2",
+  "source_schema": "creation-hierarchy-2",
+  "project_id": "project-fixture",
+  "branch_id": "main",
+  "resource_id": "scene",
+  "source_revision": "source-fixture-v1",
+  "source_document_version": "44ac15249d389ded985d7a0e13dd64b3befcd75f71344895e91d38ea2fe610c5",
+  "root": {
+    "kind": "object",
+    "id": "root"
+  },
+  "required_capabilities": [
+    "hierarchy-runtime-2",
+    "explicit-instance-mounts",
+    "quaternion-local-trs",
+    "world-matrix-observation",
+    "fixed-asset-closure"
+  ],
+  "limits": {
+    "max_expanded_nodes": 1000,
+    "max_world_coordinate": 10000,
+    "physics_policy": "orthogonal-box-uniform-sphere-v1"
+  },
+  "objects": [
+    {
+      "id": "carrier",
+      "parent": {
+        "kind": "object",
+        "id": "root"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [],
+        "definition_node_id": "carrier"
+      },
+      "key": "[\"carrier\"]",
+      "parent_key": "[\"root\"]",
+      "node": {
+        "id": "carrier",
+        "name": "carrier",
+        "kind": "anchor",
+        "parent_id": "root",
+        "transform": {
+          "position": [
+            10,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0.7071067811865475,
+            0,
+            0.7071067811865476
+          ],
+          "scale": [
+            2,
+            2,
+            2
+          ]
+        },
+        "color": "#74d5cd",
+        "solid": false,
+        "components": {},
+        "version": "05d77360567403db7e4607688baa4df43ba68df8af5e113ab2aa6261e5f4a397"
+      },
+      "definition_resource_id": "scene",
+      "definition_revision": "44ac15249d389ded985d7a0e13dd64b3befcd75f71344895e91d38ea2fe610c5",
+      "local_transform": {
+        "position": [
+          10,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0.7071067811865475,
+          0,
+          0.7071067811865476
+        ],
+        "scale": [
+          2,
+          2,
+          2
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        2,
+        3,
+        1
+      ],
+      "world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        11,
+        3,
+        3,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          11,
+          3,
+          3
+        ],
+        "rotation": [
+          0,
+          0.7071067811865475,
+          0,
+          0.7071067811865476
+        ],
+        "scale": [
+          2,
+          2,
+          2
+        ]
+      },
+      "world_position": [
+        11,
+        3,
+        3
+      ],
+      "object_version": "5c1b47cd76867c74307d4ff85016001e4ce7369a534c86a86bd4ab3963da5b3a",
+      "ancestry_hash": "24a8747a634425ef3aab6ba771576a8192ecb37df62eeefcceaefd2753371e8c",
+      "definition_node_version": "05d77360567403db7e4607688baa4df43ba68df8af5e113ab2aa6261e5f4a397"
+    },
+    {
+      "id": "node-0d894523eeee3df635097b37d902c375f882524fc310f2ec0c304c86ca326658",
+      "parent": {
+        "kind": "object",
+        "id": "node-ebfc9bb033c7dc6360a46f68a6a013fce13e7a35d29da8cd7dfdec6919429e05"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "a"
+        ],
+        "definition_node_id": "door"
+      },
+      "key": "[\"a\",\"door\"]",
+      "parent_key": "[\"a\",\"root\"]",
+      "node": {
+        "id": "door",
+        "name": "door",
+        "kind": "anchor",
+        "parent_id": "root",
+        "transform": {
+          "position": [
+            0,
+            0,
+            4
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "color": "#74d5cd",
+        "solid": false,
+        "components": {},
+        "version": "02475d11ee5ac6d22352053c1ae7d67220426b9ad837954a4f2125c178384d97"
+      },
+      "definition_resource_id": "house",
+      "definition_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "local_transform": {
+        "position": [
+          0,
+          0,
+          4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        11,
+        9,
+        1,
+        1
+      ],
+      "world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        19,
+        9,
+        1.0000000000000018,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          19,
+          9,
+          1.0000000000000018
+        ],
+        "rotation": [
+          0,
+          0.7071067811865475,
+          0,
+          0.7071067811865476
+        ],
+        "scale": [
+          2,
+          2,
+          2
+        ]
+      },
+      "world_position": [
+        19,
+        9,
+        1.0000000000000018
+      ],
+      "object_version": "4a50f625e70c44489bb50220ce42742a5e3df1e14af20164eff520713c968b98",
+      "ancestry_hash": "182b1db61d85c49af47f9b5315a2439a10bfbfe477ec64566215f7d07499bf3e",
+      "definition_node_version": "02475d11ee5ac6d22352053c1ae7d67220426b9ad837954a4f2125c178384d97"
+    },
+    {
+      "id": "node-13152c0c0f295be302720eb1f0396169311e1e2ae627638dae95928709f3acf1",
+      "parent": {
+        "kind": "mount",
+        "id": "mount-0d6a9b18657dabe6040c3cb172a344c3197160e7e9fbd1c1909f3e8b77608d20"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "b",
+          "sign"
+        ],
+        "definition_node_id": "root"
+      },
+      "key": "[\"b\",\"sign\",\"root\"]",
+      "parent_key": "[\"b\",\"door\"]",
+      "node": {
+        "id": "root",
+        "name": "新场景",
+        "kind": "group",
+        "parent_id": null,
+        "transform": {
+          "position": [
+            0.5,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {},
+        "solid": false,
+        "version": "59b15e369eb5fdfcdae58d574c42efc771c6c28cc1eea3f195d0ad3f5ff98f99"
+      },
+      "definition_resource_id": "sign",
+      "definition_revision": "1e50a9b35f4879859b3533ae43f2419fcbce608a32032eeb3a67f84661b97d57",
+      "local_transform": {
+        "position": [
+          0.5,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        6,
+        7,
+        1
+      ],
+      "world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31.5,
+        6,
+        7,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          31.5,
+          6,
+          7
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "world_position": [
+        31.5,
+        6,
+        7
+      ],
+      "object_version": "1489f912a62e41e5020216d1119ac2321efcf76843180f478244de3c89af55b3",
+      "ancestry_hash": "9c75adc502d266d25380b7a7bf21af93f1d38016ddbbf5d631d73c5ed267c939",
+      "definition_node_version": "59b15e369eb5fdfcdae58d574c42efc771c6c28cc1eea3f195d0ad3f5ff98f99"
+    },
+    {
+      "id": "node-2115dfabfdb6d3e19d27e8122975101181c2a6e069256e6d206eae11fa45370c",
+      "parent": {
+        "kind": "object",
+        "id": "node-ad5e0dbc325879f19cf7d91b161f1f1fad82b28eef6b1308e41204928abae332"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "a",
+          "sign"
+        ],
+        "definition_node_id": "tip"
+      },
+      "key": "[\"a\",\"sign\",\"tip\"]",
+      "parent_key": "[\"a\",\"sign\",\"root\"]",
+      "node": {
+        "id": "tip",
+        "name": "tip",
+        "kind": "anchor",
+        "parent_id": "root",
+        "transform": {
+          "position": [
+            0,
+            0,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "color": "#74d5cd",
+        "solid": false,
+        "components": {},
+        "version": "310f1899c12ff51553e221d0c59630cd598a9beebf2a1ced7823aa54edafb57f"
+      },
+      "definition_resource_id": "sign",
+      "definition_revision": "1e50a9b35f4879859b3533ae43f2419fcbce608a32032eeb3a67f84661b97d57",
+      "local_transform": {
+        "position": [
+          0,
+          0,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        19,
+        11,
+        1.7763568394002505e-15,
+        1
+      ],
+      "world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        21,
+        11,
+        2.220446049250313e-15,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          21,
+          11,
+          2.220446049250313e-15
+        ],
+        "rotation": [
+          0,
+          0.7071067811865475,
+          0,
+          0.7071067811865476
+        ],
+        "scale": [
+          2,
+          2,
+          2
+        ]
+      },
+      "world_position": [
+        21,
+        11,
+        2.220446049250313e-15
+      ],
+      "object_version": "8e1040eb57688779f9c371d45a21cc95125d9cc223245cf903af30042a7cfe45",
+      "ancestry_hash": "3c9236abdd11e5c3f843bea19576405112b37033034ff0d8c460e042b5b3f8de",
+      "definition_node_version": "310f1899c12ff51553e221d0c59630cd598a9beebf2a1ced7823aa54edafb57f"
+    },
+    {
+      "id": "node-2fca4900bccbca16d2fccb2a57c5172527fa533e65701a573c116def34bc598d",
+      "parent": {
+        "kind": "object",
+        "id": "node-13152c0c0f295be302720eb1f0396169311e1e2ae627638dae95928709f3acf1"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "b",
+          "sign"
+        ],
+        "definition_node_id": "tip"
+      },
+      "key": "[\"b\",\"sign\",\"tip\"]",
+      "parent_key": "[\"b\",\"sign\",\"root\"]",
+      "node": {
+        "id": "tip",
+        "name": "tip",
+        "kind": "anchor",
+        "parent_id": "root",
+        "transform": {
+          "position": [
+            0,
+            0,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "color": "#74d5cd",
+        "solid": false,
+        "components": {},
+        "version": "310f1899c12ff51553e221d0c59630cd598a9beebf2a1ced7823aa54edafb57f"
+      },
+      "definition_resource_id": "sign",
+      "definition_revision": "1e50a9b35f4879859b3533ae43f2419fcbce608a32032eeb3a67f84661b97d57",
+      "local_transform": {
+        "position": [
+          0,
+          0,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31.5,
+        6,
+        7,
+        1
+      ],
+      "world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31.5,
+        6,
+        8,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          31.5,
+          6,
+          8
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "world_position": [
+        31.5,
+        6,
+        8
+      ],
+      "object_version": "d443dc1d2f22f5fe745ff87d7c62a8185e1aca1ca3126a9c9c551822c5268bd2",
+      "ancestry_hash": "5b445ee0c226be818857ca6165f28bf88ba8043298924350ad7a58f08ba26604",
+      "definition_node_version": "310f1899c12ff51553e221d0c59630cd598a9beebf2a1ced7823aa54edafb57f"
+    },
+    {
+      "id": "node-891353876eed556b1ee817e18eaac5322051838572cc233579435235c9a8bbae",
+      "parent": {
+        "kind": "mount",
+        "id": "mount-a8950f05d3443e7921e7ec6fbe06c8febe40966a5db58b15f767a995d561290b"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "b"
+        ],
+        "definition_node_id": "root"
+      },
+      "key": "[\"b\",\"root\"]",
+      "parent_key": "[\"root\"]",
+      "node": {
+        "id": "root",
+        "name": "新场景",
+        "kind": "group",
+        "parent_id": null,
+        "transform": {
+          "position": [
+            0,
+            3,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {},
+        "solid": false,
+        "version": "bbe9581534161b2466922ca77164cb4e818991f10f38ac081f7e2027b8ec1938"
+      },
+      "definition_resource_id": "house",
+      "definition_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "local_transform": {
+        "position": [
+          0,
+          3,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        2,
+        3,
+        1
+      ],
+      "world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        5,
+        3,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          31,
+          5,
+          3
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "world_position": [
+        31,
+        5,
+        3
+      ],
+      "object_version": "57c527e304bb16a6de1ece9aec521828727a4c40619ca3b49cbd466ccf25d74e",
+      "ancestry_hash": "dc7e6dd209eacbaf828b02233a165690479f6722dfea59d4bec57d590e2afd8b",
+      "definition_node_version": "bbe9581534161b2466922ca77164cb4e818991f10f38ac081f7e2027b8ec1938"
+    },
+    {
+      "id": "node-ad5e0dbc325879f19cf7d91b161f1f1fad82b28eef6b1308e41204928abae332",
+      "parent": {
+        "kind": "mount",
+        "id": "mount-2e30e6c77f51e5acf60fdb0f9ba132665e90e3b62337d08a01cfc4b091566f63"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "a",
+          "sign"
+        ],
+        "definition_node_id": "root"
+      },
+      "key": "[\"a\",\"sign\",\"root\"]",
+      "parent_key": "[\"a\",\"door\"]",
+      "node": {
+        "id": "root",
+        "name": "新场景",
+        "kind": "group",
+        "parent_id": null,
+        "transform": {
+          "position": [
+            0.5,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {},
+        "solid": false,
+        "version": "59b15e369eb5fdfcdae58d574c42efc771c6c28cc1eea3f195d0ad3f5ff98f99"
+      },
+      "definition_resource_id": "sign",
+      "definition_revision": "1e50a9b35f4879859b3533ae43f2419fcbce608a32032eeb3a67f84661b97d57",
+      "local_transform": {
+        "position": [
+          0.5,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        19,
+        11,
+        1.0000000000000018,
+        1
+      ],
+      "world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        19,
+        11,
+        1.7763568394002505e-15,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          19,
+          11,
+          1.7763568394002505e-15
+        ],
+        "rotation": [
+          0,
+          0.7071067811865475,
+          0,
+          0.7071067811865476
+        ],
+        "scale": [
+          2,
+          2,
+          2
+        ]
+      },
+      "world_position": [
+        19,
+        11,
+        1.7763568394002505e-15
+      ],
+      "object_version": "d4424ba50fb0dc5961ed35338ede99aa032c832783001b5832a7b5f637825bd7",
+      "ancestry_hash": "0532de63337122face3310d0b62172126232d62c0baa85815f82d52cb46ab36b",
+      "definition_node_version": "59b15e369eb5fdfcdae58d574c42efc771c6c28cc1eea3f195d0ad3f5ff98f99"
+    },
+    {
+      "id": "node-afabad4f3790cb3ac9a117eb83708627154543224f56ce11bc097fed66dcdb22",
+      "parent": {
+        "kind": "object",
+        "id": "node-891353876eed556b1ee817e18eaac5322051838572cc233579435235c9a8bbae"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "b"
+        ],
+        "definition_node_id": "door"
+      },
+      "key": "[\"b\",\"door\"]",
+      "parent_key": "[\"b\",\"root\"]",
+      "node": {
+        "id": "door",
+        "name": "door",
+        "kind": "anchor",
+        "parent_id": "root",
+        "transform": {
+          "position": [
+            0,
+            0,
+            4
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "color": "#74d5cd",
+        "solid": false,
+        "components": {},
+        "version": "02475d11ee5ac6d22352053c1ae7d67220426b9ad837954a4f2125c178384d97"
+      },
+      "definition_resource_id": "house",
+      "definition_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "local_transform": {
+        "position": [
+          0,
+          0,
+          4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        5,
+        3,
+        1
+      ],
+      "world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        5,
+        7,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          31,
+          5,
+          7
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "world_position": [
+        31,
+        5,
+        7
+      ],
+      "object_version": "c1c6f8f20530e37a95a212fab962cea8b898f1eb438cc37f9bb2ca2d36e9a03d",
+      "ancestry_hash": "3a51f9fffd50c399c570c9c621239ddb87295954dc3efb5675056f98cdbefc60",
+      "definition_node_version": "02475d11ee5ac6d22352053c1ae7d67220426b9ad837954a4f2125c178384d97"
+    },
+    {
+      "id": "node-ebfc9bb033c7dc6360a46f68a6a013fce13e7a35d29da8cd7dfdec6919429e05",
+      "parent": {
+        "kind": "mount",
+        "id": "mount-0eb5b8d6f81bc677da8a08567cc4fa9a06a57e9ec8da85ed73a7f62727996002"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "a"
+        ],
+        "definition_node_id": "root"
+      },
+      "key": "[\"a\",\"root\"]",
+      "parent_key": "[\"carrier\"]",
+      "node": {
+        "id": "root",
+        "name": "新场景",
+        "kind": "group",
+        "parent_id": null,
+        "transform": {
+          "position": [
+            0,
+            3,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {},
+        "solid": false,
+        "version": "bbe9581534161b2466922ca77164cb4e818991f10f38ac081f7e2027b8ec1938"
+      },
+      "definition_resource_id": "house",
+      "definition_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "local_transform": {
+        "position": [
+          0,
+          3,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        11,
+        3,
+        1,
+        1
+      ],
+      "world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        11,
+        9,
+        1,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          11,
+          9,
+          1
+        ],
+        "rotation": [
+          0,
+          0.7071067811865475,
+          0,
+          0.7071067811865476
+        ],
+        "scale": [
+          2,
+          2,
+          2
+        ]
+      },
+      "world_position": [
+        11,
+        9,
+        1
+      ],
+      "object_version": "95f4ab82d4993ca890c7193ebd59aecc047d9d19885e9a739be48404668885ed",
+      "ancestry_hash": "a7e58a704caf4199a2562469360a91d729e5e2870fc5685d5c262fc61aa6f928",
+      "definition_node_version": "bbe9581534161b2466922ca77164cb4e818991f10f38ac081f7e2027b8ec1938"
+    },
+    {
+      "id": "root",
+      "parent": null,
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [],
+        "definition_node_id": "root"
+      },
+      "key": "[\"root\"]",
+      "parent_key": null,
+      "node": {
+        "id": "root",
+        "name": "新场景",
+        "kind": "group",
+        "parent_id": null,
+        "transform": {
+          "position": [
+            1,
+            2,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {},
+        "solid": false,
+        "version": "3bef1e688897e416613fb35621a5e0226b625e6fb93311c4f72c589b94646859"
+      },
+      "definition_resource_id": "scene",
+      "definition_revision": "44ac15249d389ded985d7a0e13dd64b3befcd75f71344895e91d38ea2fe610c5",
+      "local_transform": {
+        "position": [
+          1,
+          2,
+          3
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        2,
+        3,
+        1
+      ],
+      "world_transform": {
+        "position": [
+          1,
+          2,
+          3
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "world_position": [
+        1,
+        2,
+        3
+      ],
+      "object_version": "2bbbc02e50deb395d2e4870187da7591cededc07686b894856d93d0bb2c2d5c2",
+      "ancestry_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "definition_node_version": "3bef1e688897e416613fb35621a5e0226b625e6fb93311c4f72c589b94646859"
+    }
+  ],
+  "mounts": [
+    {
+      "id": "mount-0d6a9b18657dabe6040c3cb172a344c3197160e7e9fbd1c1909f3e8b77608d20",
+      "key": "[\"b\",\"sign\"]",
+      "parent": {
+        "kind": "object",
+        "id": "node-afabad4f3790cb3ac9a117eb83708627154543224f56ce11bc097fed66dcdb22"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "b",
+          "sign"
+        ]
+      },
+      "instance_id": "sign",
+      "owner_resource_id": "house",
+      "owner_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "prefab_id": "sign",
+      "prefab_revision": "1e50a9b35f4879859b3533ae43f2419fcbce608a32032eeb3a67f84661b97d57",
+      "instance_version": "bbdc7d63456d690bee2c532f8d02dc0ad5cc711bee6ac349f8f43669cc8ab464",
+      "local_transform": {
+        "position": [
+          0,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        5,
+        7,
+        1
+      ],
+      "world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        6,
+        7,
+        1
+      ],
+      "world_position": [
+        31,
+        6,
+        7
+      ],
+      "ancestry_hash": "9c75adc502d266d25380b7a7bf21af93f1d38016ddbbf5d631d73c5ed267c939"
+    },
+    {
+      "id": "mount-0eb5b8d6f81bc677da8a08567cc4fa9a06a57e9ec8da85ed73a7f62727996002",
+      "key": "[\"a\"]",
+      "parent": {
+        "kind": "object",
+        "id": "carrier"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "a"
+        ]
+      },
+      "instance_id": "a",
+      "owner_resource_id": "scene",
+      "owner_revision": "44ac15249d389ded985d7a0e13dd64b3befcd75f71344895e91d38ea2fe610c5",
+      "prefab_id": "house",
+      "prefab_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "instance_version": "26adf19719732c06eb15fe9facb08a58cafa5d2d83e929cf456df29557144a40",
+      "local_transform": {
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        11,
+        3,
+        3,
+        1
+      ],
+      "world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        11,
+        3,
+        1,
+        1
+      ],
+      "world_position": [
+        11,
+        3,
+        1
+      ],
+      "ancestry_hash": "a7e58a704caf4199a2562469360a91d729e5e2870fc5685d5c262fc61aa6f928"
+    },
+    {
+      "id": "mount-2e30e6c77f51e5acf60fdb0f9ba132665e90e3b62337d08a01cfc4b091566f63",
+      "key": "[\"a\",\"sign\"]",
+      "parent": {
+        "kind": "object",
+        "id": "node-0d894523eeee3df635097b37d902c375f882524fc310f2ec0c304c86ca326658"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "a",
+          "sign"
+        ]
+      },
+      "instance_id": "sign",
+      "owner_resource_id": "house",
+      "owner_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "prefab_id": "sign",
+      "prefab_revision": "1e50a9b35f4879859b3533ae43f2419fcbce608a32032eeb3a67f84661b97d57",
+      "instance_version": "bbdc7d63456d690bee2c532f8d02dc0ad5cc711bee6ac349f8f43669cc8ab464",
+      "local_transform": {
+        "position": [
+          0,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        19,
+        9,
+        1.0000000000000018,
+        1
+      ],
+      "world_matrix": [
+        4.440892098500626e-16,
+        0,
+        -2,
+        0,
+        0,
+        2,
+        0,
+        0,
+        2,
+        0,
+        4.440892098500626e-16,
+        0,
+        19,
+        11,
+        1.0000000000000018,
+        1
+      ],
+      "world_position": [
+        19,
+        11,
+        1.0000000000000018
+      ],
+      "ancestry_hash": "0532de63337122face3310d0b62172126232d62c0baa85815f82d52cb46ab36b"
+    },
+    {
+      "id": "mount-a8950f05d3443e7921e7ec6fbe06c8febe40966a5db58b15f767a995d561290b",
+      "key": "[\"b\"]",
+      "parent": {
+        "kind": "object",
+        "id": "root"
+      },
+      "address": {
+        "project_id": "project-fixture",
+        "branch_id": "main",
+        "resource_id": "scene",
+        "instance_path": [
+          "b"
+        ]
+      },
+      "instance_id": "b",
+      "owner_resource_id": "scene",
+      "owner_revision": "44ac15249d389ded985d7a0e13dd64b3befcd75f71344895e91d38ea2fe610c5",
+      "prefab_id": "house",
+      "prefab_revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b",
+      "instance_version": "61cc0656cff19b850a6372669c5e44921271898528290f40018b9f79a29a6829",
+      "local_transform": {
+        "position": [
+          30,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "parent_world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        2,
+        3,
+        1
+      ],
+      "world_matrix": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        31,
+        2,
+        3,
+        1
+      ],
+      "world_position": [
+        31,
+        2,
+        3
+      ],
+      "ancestry_hash": "dc7e6dd209eacbaf828b02233a165690479f6722dfea59d4bec57d590e2afd8b"
+    }
+  ],
+  "assembly_order": [
+    {
+      "kind": "object",
+      "id": "root"
+    },
+    {
+      "kind": "mount",
+      "id": "mount-a8950f05d3443e7921e7ec6fbe06c8febe40966a5db58b15f767a995d561290b"
+    },
+    {
+      "kind": "object",
+      "id": "node-891353876eed556b1ee817e18eaac5322051838572cc233579435235c9a8bbae"
+    },
+    {
+      "kind": "object",
+      "id": "node-afabad4f3790cb3ac9a117eb83708627154543224f56ce11bc097fed66dcdb22"
+    },
+    {
+      "kind": "mount",
+      "id": "mount-0d6a9b18657dabe6040c3cb172a344c3197160e7e9fbd1c1909f3e8b77608d20"
+    },
+    {
+      "kind": "object",
+      "id": "carrier"
+    },
+    {
+      "kind": "mount",
+      "id": "mount-0eb5b8d6f81bc677da8a08567cc4fa9a06a57e9ec8da85ed73a7f62727996002"
+    },
+    {
+      "kind": "object",
+      "id": "node-ebfc9bb033c7dc6360a46f68a6a013fce13e7a35d29da8cd7dfdec6919429e05"
+    },
+    {
+      "kind": "object",
+      "id": "node-0d894523eeee3df635097b37d902c375f882524fc310f2ec0c304c86ca326658"
+    },
+    {
+      "kind": "mount",
+      "id": "mount-2e30e6c77f51e5acf60fdb0f9ba132665e90e3b62337d08a01cfc4b091566f63"
+    },
+    {
+      "kind": "object",
+      "id": "node-13152c0c0f295be302720eb1f0396169311e1e2ae627638dae95928709f3acf1"
+    },
+    {
+      "kind": "object",
+      "id": "node-ad5e0dbc325879f19cf7d91b161f1f1fad82b28eef6b1308e41204928abae332"
+    },
+    {
+      "kind": "object",
+      "id": "node-2115dfabfdb6d3e19d27e8122975101181c2a6e069256e6d206eae11fa45370c"
+    },
+    {
+      "kind": "object",
+      "id": "node-2fca4900bccbca16d2fccb2a57c5172527fa533e65701a573c116def34bc598d"
+    }
+  ],
+  "prefab_closure": [
+    {
+      "resource_id": "house",
+      "revision": "54370aeb2bef8848adb2943ee997d9378571bd46dc20271ce580015f195ae16b"
+    },
+    {
+      "resource_id": "sign",
+      "revision": "1e50a9b35f4879859b3533ae43f2419fcbce608a32032eeb3a67f84661b97d57"
+    }
+  ],
+  "asset_closure": [],
+  "pack_hash": "df82718c8001edc8065b2dcc92a504b45c756d0beb86b241f5fb0bb83a8be0e0"
+}

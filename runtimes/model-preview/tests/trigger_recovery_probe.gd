@@ -1,0 +1,72 @@
+extends "res://tests/trigger_lifecycle_probe.gd"
+var timeline: Array=[]
+
+func capture(label_value: String) -> void:
+	timeline.append({"label":label_value,"snapshot":simulation.snapshot()})
+
+func run() -> void:
+	create_timer(20).timeout.connect(func():print("TRIGGER_RECOVERY_TIMEOUT");quit(2))
+	prune_offline=true
+	replace_world({},["a"],[0,.2,0])
+	await step(12)
+	check(state().activations==1 and state().inside==["a"],"new player spawning inside triggers an initial entry")
+	capture("fresh_inside")
+	simulation.leave("a")
+	await step(12)
+	check(state().inside.is_empty() and state().activations==1,"generic fixture independently prunes offline members without resetting progress")
+	check(simulation.snapshot().players.a.online==false and simulation.trigger_contacts["probe-area"]==["a"],"offline player keeps physical contact baseline while online remains false")
+	capture("offline")
+	simulation.join("a","A","#8acfff")
+	await step(12)
+	check(state().activations==1 and simulation.trigger_contacts["probe-area"]==["a"],"same-position offline/rejoin does not emit a new physical entry even after business membership was pruned")
+	capture("rejoined")
+	await step(36,Vector2(0,1))
+	await step(4)
+	check(simulation.trigger_contacts["probe-area"].is_empty() and state().activations==1,"real movement out clears platform contact exactly once")
+	await step(36,Vector2(0,-1))
+	await step(4)
+	check(state().activations==2 and state().inside==["a"] and simulation.trigger_contacts["probe-area"]==["a"],"actual reentry after offline/rejoin activates again")
+	var checkpoint=simulation.snapshot()
+	capture("before_cold_initialize")
+	replace_world(checkpoint,[],[0,.2,0])
+	check(simulation.snapshot().players.a.online==false,"cold ready snapshot marks saved users offline until an actual join in this authority")
+	await step(12)
+	check(simulation.players.is_empty() and state().inside.is_empty() and state().activations==2,"cold world may run creator ticks with zero connected players without changing saved progress")
+	check(simulation.trigger_contacts["probe-area"]==["a"],"checkpoint contact membership survives the disconnected restoration window")
+	simulation.join("a","A","#8acfff")
+	await step(12)
+	check(simulation.snapshot().players.a.online==true,"actual rejoin restores online presence independently of contact membership")
+	check(state().activations==2 and simulation.trigger_contacts["probe-area"]==["a"],"rejoin after cold initialization does not replay contact entry")
+	capture("after_cold_rejoin")
+	var legacy=checkpoint.duplicate(true)
+	legacy.erase("trigger_contacts")
+	replace_world(legacy,[],[0,.2,0])
+	# A ready checkpoint taken before the first physics boundary must preserve
+	# the pending legacy migration so a second immediate restart cannot lose it.
+	var pending=simulation.snapshot()
+	check(pending.trigger_contacts.legacy_pending==["a"],"legacy checkpoint records pending geometry migration before the first physics boundary")
+	replace_world(pending,[],[0,.2,0])
+	await step(12)
+	check(simulation.trigger_contacts["probe-area"]==["a"] and simulation.legacy_contact_players.is_empty(),"real PhysicsDirectSpaceState capsule/sphere query migrates an existing saved player without requiring an online body")
+	simulation.join("a","A","#8acfff")
+	await step(12)
+	check(state().activations==2,"legacy checkpoint inside rejoin preserves count after the business offline prune")
+	capture("after_legacy_rejoin")
+	simulation.join("b","B","#ffc980")
+	await step(12)
+	check(state().activations==3 and "b" in simulation.trigger_contacts["probe-area"],"new player not present in the saved checkpoint still triggers on its first actual overlap")
+	await step(36,Vector2(0,1))
+	await step(4)
+	check(not "a" in simulation.trigger_contacts["probe-area"] and "b" in simulation.trigger_contacts["probe-area"],"one player's exit does not clear another player's contact")
+	await step(36,Vector2(0,-1))
+	await step(4)
+	check(state().activations==4 and "a" in simulation.trigger_contacts["probe-area"],"legacy-restored player's real exit/reentry activates exactly once")
+	capture("final")
+	var okay=true
+	for item in checks:okay=okay and item.ok
+	var report={"ok":okay,"completed":true,"checks":checks,"timeline":timeline,"signals":signals,"scope":"actual isolated Godot physics, generic offline-pruning fixture, checkpoint restore and normal player input; new World3D initialization is tested here, actual process restart is independent integration acceptance"}
+	if options.has("report"):
+		var file=FileAccess.open(options.report,FileAccess.WRITE)
+		file.store_string(JSON.stringify(report,"\t"))
+	print("TRIGGER_RECOVERY_COMPLETE "+JSON.stringify(report))
+	quit(0 if okay else 1)

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "document_schemas": [
+    "creation-flat-1",
+    "creation-hierarchy-2"
+  ],
+  "features": [
+    "hierarchy-runtime-2",
+    "explicit-instance-mounts",
+    "quaternion-local-trs",
+    "world-matrix-observation",
+    "fixed-asset-closure",
+    "independent-editor-play",
+    "inspection-ui-toggle"
+  ]
+}

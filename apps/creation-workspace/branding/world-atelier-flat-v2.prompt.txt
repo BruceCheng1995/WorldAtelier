@@ -1,0 +1,7 @@
+Generator: built-in image_gen. PNG size variants resized with macOS sips.
+
+Use case: logo-brand
+Create ONE finished flat application icon for World Atelier, a collaborative world-building editor. A refined contemporary graphic identity, exceptionally simple and memorable, readable at 24 pixels.
+Design: a bold continuous warm-ivory ribbon forming a geometric lowercase w with two rounded valley curves and three flat upward terminals. Integrated into its upper right is one detached small mint-green square, like a building tile being placed, giving the mark a subtle creative construction meaning. The ribbon is a solid two-dimensional silhouette with generous negative space and uniform heavy visual weight. Use deliberate optical balance. Front view only.
+Background: perfectly uniform deep forest green #173F35 extending edge to edge. Symbol ivory #F5F3DF; detached tile mint #B8E5A6. Only these three solid colors. Symbol centered, occupies about 68 percent of square canvas, generous equal safe margins. Output square 1024 x 1024.
+Style: pristine vector-like flat graphic, Swiss design clarity, softened geometric corners, premium creative software identity. No 3D, no cubes, no isometric perspective, no shading, no gradients, no shadows, no lighting, no texture, no bevels, no glow. No text or wordmark, no captions, no border, no presentation board, no mockup, no extra objects. Just the actual flat app icon.

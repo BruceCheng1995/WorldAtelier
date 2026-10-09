@@ -1,5 +1,11 @@
 # Implemented contract — local World Atelier, 2026-09-07
 
+> 2026-09-08 产品统一：48900 中央门户已退役。唯一产品入口为 48910 创作工作台，`npm start` / `npm run dev` 启动同一服务。旧协议、客户端与测试仅作历史兼容；不再提供旧门户界面。
+
+2026-09-09: The native source upgrade uses `creation-native-1`, immutable whole-project file identities, engine-derived scene indexes, and real PackedScene instance overrides. Current `/creation-api` integration and fresh evidence are recorded in [NATIVE-FRAMEWORK-UPGRADE.md](../../docs/NATIVE-FRAMEWORK-UPGRADE.md). The legacy `/api` examples below do not define native authoring or prove its acceptance.
+
+**Product correction, 2026-09-07:** This is the existing Starfall technical baseline, not evidence of the requested collaborative creation workflow. Scene/prefab resources, edit operations, persistent creator sessions, real Agent goals and personal inspection are specified in [the pending creation contract](../../docs/CREATION-PROTOCOL.md); they are not implemented by the endpoints below. The existing task hash-based status linkage is not sufficient to establish goal completion.
+
 This records the local implementation interfaces; design invariants in docs/PROTOCOL.md still apply. Metadata timestamps use Unix milliseconds. Gameplay `world_time`, event time and attack/dash/respawn deadlines use simulation seconds; `tick` is the 30 Hz simulation counter. JSON uses snake_case. The game is **星屿远征 / Starfall Expedition**, a substantial cooperative action exploration game: observatory hub, verdant gardens, ember foundry, ancient citadel; multiple objectives, enemy archetypes, boss, upgrades, combat and persistent progress.
 
 ## Authority protocol (WebSocket JSON)
@@ -82,3 +88,13 @@ Portal restores a selected historical object's value into the current draft only
 
 
 Host control also includes `leave`, `freeze` and its matching `frozen` state response. Freeze blocks simulation and mutation before the checkpoint is persisted. During a program change the coordinator emits upgrading/runtime_upgrade notices; the old client stops sending commands and a new program must use a fresh checkout/ticket. A successful resource/node load or snapshot ACK is not proof of GPU presentation; exported-client screenshots and input tests are recorded separately.
+
+## Creation workbench LAN access (48910, 2026-09-08)
+
+The current `services/preview/server.mjs` workbench defaults to LAN listening and open registration. `WORLD_ATELIER_LAN=0` binds loopback only; `WORLD_ATELIER_PUBLIC_PLAY=0` restores membership-only game access. Independent ports default to both off and require explicit opt-in for LAN tests. HTTP Host must match the machine's interfaces/name and service port; browser writes and WebSocket upgrades retain same-origin checks. Native Godot workers use loopback and authenticated worker tokens.
+
+`GET /creation-api/bootstrap` includes `can_create_project` and a transient `player` project role for registered nonmembers under public play. Players may read the game catalog, scene assets and join actual worlds; they cannot edit source, create games/sessions, start Agents, explicitly validate/publish, or read private or member-shared sessions. Owner/editor invitations grant creation rights. Only the first registered account can bootstrap the first game in an empty public-mode database.
+
+`GET /creation-api/projects/:p/branches/:b/playable?resource_id=:r` resolves `{source_revision, resource_id, world_id, runtime_build_id}` from the existing applied world, or from the source head when no world exists. A player's `world_join.source_revision` must still match that playable revision before and after world preparation. Unpublished source changes do not publish themselves or prevent joining an older applied world. Editor joins retain their current-source checks. Cold joining performs real isolated Godot validation with read authorization; explicit validation/publishing still require write authorization.
+
+The Web build applies a hash-guarded compatibility adaptation only to the reviewed official single-threaded, non-PWA, non-extension Godot 4.6 export. LAN HTTP uses cryptographically random UUIDs without secure-context-only APIs, and the Godot Dummy audio driver when AudioWorklet is unavailable; the viewport explicitly indicates silent play. HTTPS retains its original audio configuration. Build files and compatibility provenance are included in the immutable content hash.

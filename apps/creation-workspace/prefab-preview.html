@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>预制件缩略图渲染</title><style>html,body,canvas{width:100%;height:100%;margin:0;overflow:hidden;background:#101b25}canvas{display:block}</style></head><body><canvas id="canvas" aria-label="预制件截图画布"></canvas><script>
+(async()=>{
+  const build=new URLSearchParams(location.search).get('build');
+  if(!/^[a-f0-9]{64}$/.test(build??''))throw Error('无效预览版本');
+  const base='/preview-builds/'+build+'/';
+  const response=await fetch(base+'manifest.json',{cache:'force-cache'});if(!response.ok)throw Error('预览版本不可用');
+  const manifest=await response.json();if(manifest.build_id!==build)throw Error('预览版本不匹配');
+  if(manifest.single_threaded!==true)throw Error('缩略图需要单线程预览版本');
+  await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=base+'index.js';script.onload=resolve;script.onerror=reject;document.head.append(script);});
+  const missing=Engine.getMissingFeatures({threads:false});if(missing.length)throw Error(missing.join('；'));
+  // This one disposable renderer needs a retained framebuffer for snapshots.
+  // The scene and inspector viewports keep their original rendering settings.
+  const canvas=document.querySelector('canvas');
+  if(!canvas.getContext('webgl2',{preserveDrawingBuffer:true,alpha:false,antialias:false}))throw Error('WebGL 2 不可用');
+  const sizes=Object.fromEntries(manifest.files.map(file=>[base+file.path,file.bytes??file.size]));
+  // A still-image renderer never needs audio. Godot 4.6 otherwise initializes
+  // AudioWorklet even on LAN HTTP, where that secure-context API is unavailable.
+  const engine=new Engine({canvas,executable:base+'index',fileSizes:sizes,args:['--audio-driver','Dummy'],canvasResizePolicy:2,focusCanvas:false,ensureCrossOriginIsolationHeaders:false,gdextensionLibs:[]});
+  await engine.startGame();
+})().catch(error=>{
+  parent.postMessage({source:'world-atelier-preview',nonce:new URLSearchParams(location.search).get('nonce'),type:'thumbnail_error',message:error.message||'预览启动失败'},location.origin);
+});
+</script></body></html>

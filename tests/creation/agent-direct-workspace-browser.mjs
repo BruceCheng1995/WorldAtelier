@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:net';
+import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {chromium} from '@playwright/test';
+
+const root=resolve(import.meta.dirname,'../..'),data=mkdtempSync(resolve(tmpdir(),'atelier-agent-direct-browser-'));
+const evidence=resolve(root,'.local/creation-verification/agent-direct-browser',new Date().toISOString().replace(/[:.]/g,'-'));mkdirSync(evidence,{recursive:true});
+const probe=createServer();await new Promise(ok=>probe.listen(0,'127.0.0.1',ok));const port=probe.address().port;await new Promise(ok=>probe.close(ok));
+const origin='http://127.0.0.1:'+port,report={origin,scope:'Isolated actual workbench with real HTTP and SQLite; Agent and shared world executors disabled; no gameplay or Agent execution claim',cases:[],completed:false};
+let child,browser,page,serverLog='',token;const wait=ms=>new Promise(ok=>setTimeout(ok,ms));
+async function api(method,path,body){const response=await fetch(origin+'/creation-api/'+path,{method,headers:{Origin:origin,'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});assert.ok(response.ok,await response.clone().text());return response.json();}
+async function check(name,fn){await fn();report.cases.push({name,status:'passed'});console.log('PASS '+name);}
+try{
+ child=spawn(process.execPath,['services/preview/server.mjs'],{cwd:root,env:{...process.env,WORLD_ATELIER_PREVIEW_PORT:String(port),WORLD_ATELIER_PREVIEW_DATA:data,WORLD_ATELIER_CREATION_DATA:resolve(data,'creation'),WORLD_ATELIER_DISABLE_AGENT:'1',WORLD_ATELIER_DISABLE_WORLDS:'1',WORLD_ATELIER_LAN:'0',WORLD_ATELIER_PUBLIC_PLAY:'0'},stdio:['ignore','pipe','pipe']});child.stdout.on('data',b=>serverLog+=b);child.stderr.on('data',b=>serverLog+=b);
+ for(let i=0;i<150;i++){if(child.exitCode!==null)throw Error(serverLog);try{if((await fetch(origin+'/creation-api/health')).ok)break;}catch{}await wait(50);}
+ token=(await api('POST','auth/register',{name:'Direct Agent UI '+randomUUID().slice(0,8),password:randomUUID()})).token;
+ const {project}=await api('POST','projects',{name:'隔离会话入口检查',template:'empty'});
+ const session=await api('POST',`projects/${project.id}/branches/main/sessions`,{title:'浏览器真实会话'});
+ browser=await chromium.launch({channel:'chrome',headless:true});const context=await browser.newContext({viewport:{width:1440,height:980}});await context.addInitScript(value=>sessionStorage.setItem('world-atelier-creator-token',value),token);page=await context.newPage();
+ const errors=[],requests=[];page.on('pageerror',e=>errors.push(e.message));page.on('request',request=>requests.push({url:request.url(),method:request.method()}));
+ await page.goto(origin+`/creation-workspace.html#/games/${project.id}/branches/main`);await page.locator('#workbench').waitFor({state:'visible'});await page.locator('#agentsMenuButton').click();await page.locator('#sessionDraft').waitFor({state:'visible'});
+ await check('real session composer opens without retired delivery or review panel',async()=>{assert.equal(await page.locator('#sessionGoals,.goal-delivery,.goal-workspace,.goal-review-panel').count(),0);assert.doesNotMatch(await page.locator('#chatDrawer').innerText(),/目标与自动检查|目标与验收/);assert.ok(await page.locator('#sessionDraft').isEnabled());assert.ok((await api('GET',`sessions/${session.id}`)).id);});
+ await check('slash menu retains native plan and persistent goal modes',async()=>{await page.locator('#sessionDraft').fill('/');await page.locator('.semantic-suggestions').waitFor({state:'visible'});const options=page.getByRole('option');assert.match(await options.allTextContents().then(values=>values.join('\n')),/\/plan/);assert.match(await options.allTextContents().then(values=>values.join('\n')),/\/goal/);await options.filter({hasText:'/goal'}).click();await page.waitForFunction(()=>document.querySelector('.semantic-mode-pill')?.dataset.mode==='goal');assert.equal((await api('GET',`sessions/${session.id}`)).execution_mode,'goal');await page.waitForFunction(()=>!document.querySelector('#sessionModel').disabled);await page.screenshot({path:resolve(evidence,'composer-goal.png')});await page.locator('#sessionDraft').fill('');await page.locator('#sessionDraft').pressSequentially('/plan',{delay:30});await page.getByRole('option').filter({hasText:'/plan'}).click();await page.waitForFunction(()=>document.querySelector('.semantic-mode-pill')?.dataset.mode==='plan');assert.equal((await api('GET',`sessions/${session.id}`)).execution_mode,'plan');});
+ await page.waitForFunction(()=>!document.querySelector('#sessionModel').disabled);await page.screenshot({path:resolve(evidence,'composer-plan.png')});
+ await check('real Inbox opens and refreshes with no automatic check action',async()=>{await page.locator('#inboxButton').click();await page.getByRole('dialog',{name:'消息中心',exact:true}).waitFor({state:'visible'});await page.getByRole('button',{name:'刷新消息中心',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('dialog.wa-inbox')?.textContent.includes('正在读取'));assert.equal(await page.locator('[data-inbox-action="retry_verification"]').count(),0);await page.screenshot({path:resolve(evidence,'inbox.png')});});
+ assert.deepEqual(errors,[]);assert.equal(requests.some(r=>/\/automatic-checks\/|\/goals\//.test(r.url)),false);assert.equal(requests.some(r=>r.method==='POST'&&/\/turns$/.test(r.url)),false);report.page_errors=errors;report.requests=requests;report.completed=true;
+}catch(error){report.error=error.stack;if(page){report.visible_text=await page.locator('body').innerText().catch(()=>null);await page.screenshot({path:resolve(evidence,'failure.png')}).catch(()=>{});}throw error;}
+finally{await browser?.close();if(child&&child.exitCode===null){const exited=new Promise(ok=>child.once('exit',ok));child.kill('SIGTERM');const timeout=setTimeout(()=>child.kill('SIGKILL'),10000);await exited;clearTimeout(timeout);}rmSync(data,{recursive:true,force:true});report.temporary_data_removed=true;report.finished_at=new Date().toISOString();writeFileSync(resolve(evidence,'report.json'),JSON.stringify(report,null,2));writeFileSync(resolve(evidence,'server.log'),serverLog);console.log('BROWSER_REPORT '+resolve(evidence,'report.json'));}
