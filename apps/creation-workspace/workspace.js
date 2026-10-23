@@ -1644,6 +1644,7 @@ function renderAgentStatus(){
   $('#sessionAccess').closest('label').classList.toggle('is-full-access',$('#sessionAccess').value==='full-access');
   $('#sessionEffort').value=effort;$('#sessionEffort').disabled=$('#sessionModel').disabled||!options.length||!sessionFeatures;
   $('#sessionEffort').title=!sessionFeatures?'思考强度选择将在服务更新后启用':options.find(o=>o.value===effort)?.description||'使用所选模型支持的思考强度；默认由执行器决定';
+  updateSendButton();
 }
 function eventText(event){
   const p=event.params??{},item=p.item;
