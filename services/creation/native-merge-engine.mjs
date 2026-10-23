@@ -3,8 +3,8 @@ import {fail,hash,stable} from './schema.mjs';
 import {nativeFileMap,nativeSourceIdentity} from './native-source.mjs';
 
 export const NATIVE_MERGE_ALGORITHM='native-source-merge-2';
-const TEXT_LIMIT=2*1024*1024,VALUE_PREVIEW=16000,PARSE_CACHE_LIMIT=128;
-const parsedCache=new Map();
+const TEXT_LIMIT=2*1024*1024,VALUE_PREVIEW=16000,PARSE_CACHE_LIMIT=128,PARSE_CACHE_BYTES=16*1024*1024;
+const parsedCache=new Map();let parsedCacheBytes=0;
 const equal=(a,b)=>stable(a)===stable(b);
 const digest=value=>hash(value);
 const own=(value,key)=>Object.hasOwn(value,key);
@@ -19,19 +19,14 @@ const preview=value=>typeof value==='string'&&value.length>VALUE_PREVIEW?{text:v
  * A virtual candidate is represented by all of its immutable parent heads. */
 export function nativeMergeBases(store,leftHeads,rightHeads){
   const ancestors=heads=>{
-    const seen=new Set(),active=new Set();
-    const visit=id=>{
-      if(active.has(id))fail(409,'源版本历史包含循环',{code:'native_merge_invalid_history',revision:id});
-      if(seen.has(id))return;
-      const revision=store.get('creator_revision',id);
-      if(!revision)fail(409,'源版本历史不完整',{code:'native_merge_missing_history',revision:id});
-      active.add(id);for(const parent of revision.parents??[])visit(parent);active.delete(id);seen.add(id);
-    };
-    for(const id of heads)visit(id);return seen;
+    const seen=new Set(),active=new Set();let project=null;
+    for(const head of heads){const pending=[[head,false]];while(pending.length){const [id,expanded]=pending.pop();if(expanded){active.delete(id);seen.add(id);continue;}if(active.has(id))fail(409,'源版本历史包含循环',{code:'native_merge_invalid_history',revision:id});if(seen.has(id))continue;const revision=store.revisionMeta?.(id)??store.get('creator_revision',id);if(!revision)fail(409,'源版本历史不完整',{code:'native_merge_missing_history',revision:id});project??=revision.project_id;if(revision.project_id!==project)fail(409,'源版本历史跨越项目',{code:'native_merge_invalid_history',revision:id});active.add(id);pending.push([id,true]);for(const parent of revision.parents??[])pending.push([parent,false]);}}
+    return seen;
   };
   const left=ancestors(leftHeads),right=ancestors(rightHeads),common=[...left].filter(id=>right.has(id));
   const nonBest=new Set();
-  for(const id of common){const pending=[...(store.get('creator_revision',id).parents??[])],seen=new Set();while(pending.length){const next=pending.pop();if(seen.has(next))continue;seen.add(next);if(left.has(next)&&right.has(next))nonBest.add(next);pending.push(...(store.get('creator_revision',next)?.parents??[]));}}
+  // The intersection is ancestor-closed: marking its direct parents is enough.
+  for(const id of common)for(const parent of (store.revisionMeta?.(id)??store.get('creator_revision',id)).parents??[])if(left.has(parent)&&right.has(parent))nonBest.add(parent);
   return common.filter(id=>!nonBest.has(id)).sort();
 }
 
@@ -139,7 +134,7 @@ function parseBody(text){
 
 /** A source-token view only. It is never persisted as an editable scene. */
 export function parseNativeText(text){
-  const digest=createHash('sha256').update(text).digest('hex');if(parsedCache.has(digest))return parsedCache.get(digest);
+  const digest=createHash('sha256').update(text).digest('hex');if(parsedCache.has(digest)){const cached=parsedCache.get(digest);parsedCache.delete(digest);parsedCache.set(digest,cached);return cached.result;}
   const result=(()=>{
     const sections=[],parts=lines(text);let prefix='',current=null,state={quoted:false,escape:false,depth:0};
     for(const line of parts){
@@ -175,27 +170,25 @@ export function parseNativeText(text){
     }
     return {prefix,sections,byKey:new Map(sections.map(section=>[section.key,section]))};
   })();
-  parsedCache.set(digest,result);if(parsedCache.size>PARSE_CACHE_LIMIT)parsedCache.delete(parsedCache.keys().next().value);return result;
+  const bytes=result?Buffer.byteLength(text):64;parsedCache.set(digest,{result,bytes});parsedCacheBytes+=bytes;while(parsedCache.size>PARSE_CACHE_LIMIT||parsedCacheBytes>PARSE_CACHE_BYTES){const key=parsedCache.keys().next().value;parsedCacheBytes-=parsedCache.get(key).bytes;parsedCache.delete(key);}return result;
 }
 
 function mergedOrder(base,source,target,present,context,local,path){
   const surviving=list=>list.filter(key=>present.has(key)),b=surviving(base),s=surviving(source),t=surviving(target);
-  const old=new Set(base),oldS=s.filter(key=>old.has(key)),oldT=t.filter(key=>old.has(key)),oldB=b.filter(key=>oldS.includes(key)&&oldT.includes(key));
-  const sCommon=oldS.filter(key=>oldB.includes(key)),tCommon=oldT.filter(key=>oldB.includes(key));
-  const additions=sequence=>{const groups=new Map();for(let i=0;i<sequence.length;i++)if(!old.has(sequence[i])){const before=sequence.slice(0,i).findLast(key=>old.has(key))??'',after=sequence.slice(i+1).find(key=>old.has(key))??'',gap=JSON.stringify([before,after]);groups.set(gap,[...(groups.get(gap)??[]),sequence[i]]);}return groups;};
+  const old=new Set(base),oldS=s.filter(key=>old.has(key)),oldT=t.filter(key=>old.has(key)),sSet=new Set(oldS),tSet=new Set(oldT),oldB=b.filter(key=>sSet.has(key)&&tSet.has(key)),commonSet=new Set(oldB);
+  const sCommon=oldS.filter(key=>commonSet.has(key)),tCommon=oldT.filter(key=>commonSet.has(key));
+  const additions=sequence=>{const groups=new Map(),following=new Array(sequence.length);let next='',before='';for(let i=sequence.length-1;i>=0;i--){following[i]=next;if(old.has(sequence[i]))next=sequence[i];}for(let i=0;i<sequence.length;i++){if(old.has(sequence[i])){before=sequence[i];continue;}const gap=JSON.stringify([before,following[i]]);if(!groups.has(gap))groups.set(gap,[]);groups.get(gap).push(sequence[i]);}return groups;};
   const sourceAdditions=additions(s),targetAdditions=additions(t);
   const additionCollision=[...sourceAdditions].some(([gap,values])=>targetAdditions.has(gap)&&!equal(values,targetAdditions.get(gap)));
   let preferred=t;
   if(additionCollision||!equal(sCommon,oldB)&&!equal(tCommon,oldB)&&!equal(sCommon,tCommon)){
     const selected=context.choose(local,base.join('\n'),source.join('\n'),target.join('\n'),{kind:'order',path,note:'排序选择不删除另一侧新增内容；未列出的新增项按原邻接位置补入'},false);preferred=selected.split('\n').filter(key=>present.has(key));
   }else if(!equal(sCommon,oldB))preferred=s;
-  const output=[...new Set(preferred)];
-  for(const sequence of [s,t,b])for(let i=0;i<sequence.length;i++){
-    const key=sequence[i];if(output.includes(key))continue;
-    const next=sequence.slice(i+1).find(value=>output.includes(value));
-    if(next!==undefined)output.splice(output.indexOf(next),0,key);else output.push(key);
-  }
-  return output;
+  const nodes=new Map();let first=null,last=null;
+  const insert=(key,next=null)=>{if(nodes.has(key))return;const previous=next===null?last:nodes.get(next).previous;nodes.set(key,{previous,next});if(previous===null)first=key;else nodes.get(previous).next=key;if(next===null)last=key;else nodes.get(next).previous=key;};
+  for(const key of preferred)insert(key);
+  for(const sequence of [s,t,b]){let next=null;for(let i=sequence.length-1;i>=0;i--){const key=sequence[i];if(!nodes.has(key))insert(key,next);next=key;}}
+  const output=[];for(let key=first;key!==null;key=nodes.get(key).next)output.push(key);return output;
 }
 
 function mergeNativeStructured(baseText,sourceText,targetText,{context,local,path}){
