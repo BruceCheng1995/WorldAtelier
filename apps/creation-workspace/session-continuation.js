@@ -14,12 +14,13 @@ export function openSessionContinuation({session,branches,request,getContext,onC
   for(const message of [...messages].reverse()){const option=el('option',`#${message.sequence} ${message.role==='user'?'我':'Agent'} · ${String(message.content??'').replace(/\s+/g,' ').slice(0,70)}`);option.value=message.id;cutoff.append(option);}
   if(!messages.length){const option=el('option','空会话，只带入新的继续目标');option.value='';cutoff.append(option);}cutoffLabel.append(cutoff);
   const objectiveLabel=el('label','在这个分支继续做什么'),objective=el('textarea');objective.rows=4;objective.maxLength=12000;objective.required=true;objective.placeholder='例如：参考刚才的试玩问题，在这个分支继续修好门的交互';objective.dataset.continuationObjective='';objectiveLabel.append(objective);
+  const evidenceLabel=el('label'),evidence=el('input');evidence.type='checkbox';evidence.checked=true;evidence.dataset.continuationEvidence='';evidenceLabel.append(evidence,el('span','带入截止消息以前的试玩观察与关键画面'));
   const error=el('p');error.className='session-continuation-error';error.setAttribute('role','alert');const actions=el('div');actions.className='session-continuation-actions';
-  const cancel=el('button','取消');cancel.type='button';cancel.onclick=()=>dialog.close();const submit=el('button','创建并继续');submit.type='submit';submit.dataset.continuationSubmit='';actions.append(cancel,submit);form.append(targetLabel,cutoffLabel,objectiveLabel,error,actions);dialog.append(form);document.body.append(dialog);
+  const cancel=el('button','取消');cancel.type='button';cancel.onclick=()=>dialog.close();const submit=el('button','创建并继续');submit.type='submit';submit.dataset.continuationSubmit='';actions.append(cancel,submit);form.append(targetLabel,cutoffLabel,evidenceLabel,objectiveLabel,error,actions);dialog.append(form);document.body.append(dialog);
   let requestId=randomUUID(),fingerprint=null,busy=false;
   form.onsubmit=async event=>{
     event.preventDefault();if(busy||!objective.value.trim())return;
-    const branch=targets.find(branch=>branch.branch_id===target.value);const input={target_branch_id:branch.branch_id,expected_target_head:branch.head,cutoff_message_id:cutoff.value||null,objective:objective.value.trim()};
+    const branch=targets.find(branch=>branch.branch_id===target.value);const input={target_branch_id:branch.branch_id,expected_target_head:branch.head,cutoff_message_id:cutoff.value||null,objective:objective.value.trim(),...(!evidence.checked?{observation_ids:[]}: {})};
     const next=JSON.stringify(input);if(fingerprint&&fingerprint!==next)requestId=randomUUID();fingerprint=next;busy=true;submit.disabled=true;submit.textContent='正在固定上下文…';error.textContent='';
     try{
       if(!same())throw Error('账号或项目已切换，未延续旧会话');

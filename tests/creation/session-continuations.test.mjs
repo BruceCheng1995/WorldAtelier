@@ -42,3 +42,9 @@ test('source private history remains protected even if target is explicitly shar
   const f=contextFixture(t),p=prepare(f),result=f.service.continuations.create(f.owner,f.session.id,p.input);f.store.updateSession(f.owner,result.session.id,{visibility:'shared'});
   assert.throws(()=>f.service.continuations.read(f.other,result.session.id,{section:'messages'}),{status:403});
 });
+test('explicit empty observation selection excludes private frames and observations from the continuation',t=>{
+  const f=contextFixture(t),p=prepare(f),result=f.service.continuations.create(f.owner,f.session.id,{...p.input,observation_ids:[]});
+  assert.deepEqual(result.context.observation_ids,[]);const messages=f.service.continuations.read(f.owner,result.session.id,{section:'messages'}).items;
+  assert.ok(messages[0].attachments.every(a=>a.excluded===true));assert.ok(messages[0].attachments.every(a=>!a.sha256&&!a.observation_id));
+  assert.throws(()=>f.service.continuations.read(f.owner,result.session.id,{section:'observations',observation_id:p.observed.observation_id}),{status:403});
+});

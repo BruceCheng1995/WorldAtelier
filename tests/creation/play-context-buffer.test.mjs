@@ -44,3 +44,14 @@ test('wire validation rejects oversized, nonfinite, executable and reversed obse
   assert.throws(()=>normalizePlayCapture({...capture,focus:{kind:'screen_region',rect:[.9,0,.5,.5]}}));
   assert.throws(()=>normalizePlayCapture({...capture,events:[{...capture.events[0],at_ms:19},{...capture.events[0],at_ms:12}]}));
 });
+test('a single oversized event or snapshot is rejected or trimmed before it can exceed the local budget',()=>{
+  const {buffer,set}=fixture({limits:{localBytes:600,captureBytes:1800}});set(10);
+  assert.equal(buffer.record({kind:'huge',payload:{text:'x'.repeat(1900)}}),false);assert.equal(buffer.events.length,0);assert.ok(buffer.bytes<=600);
+  buffer.accept(packet(1,{kind:'snapshot',payload:{objects:[{runtime_id:'one',name:'x'.repeat(1900)}]}}));assert.ok(buffer.bytes<=600);assert.ok(buffer.snapshot.objects.length===0);
+  assert.equal(buffer.accept(packet(2,{kind:'snapshot',payload:{objects:[{runtime_id:'one',name:'x'.repeat(5000)}]}})),false);assert.ok(buffer.bytes<=600);
+  const capture=buffer.freeze({requestId:'bounded'});assert.ok(new TextEncoder().encode(JSON.stringify(capture)).length<=1800);
+});
+test('shared authority epoch change discards the prior authority buffer even if the iframe and scene remain',()=>{
+  const {buffer,set}=fixture();buffer.bind({...scope,world_id:'world-one',epoch:1,session_kind:'shared_world'});set(10);buffer.record({kind:'pointer_down',payload:{}});
+  buffer.bind({...scope,world_id:'world-one',epoch:2,session_kind:'shared_world'});assert.equal(buffer.events.length,0);assert.equal(buffer.scope.epoch,2);
+});

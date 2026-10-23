@@ -1,4 +1,4 @@
-import {PLAY_CONTEXT_PROTOCOL,PLAY_CONTEXT_LIMITS,samePlayContext,playFocus,playContextBytes,summarizePlayCapture} from '../../packages/contracts/play-context.mjs';
+import {PLAY_CONTEXT_PROTOCOL,PLAY_CONTEXT_LIMITS,samePlayContext,playFocus,playContextBytes,summarizePlayCapture,observationValue} from '../../packages/contracts/play-context.mjs';
 
 const copy=value=>structuredClone(value);
 const keyOf=scope=>scope&&[scope.project_id,scope.branch_id,scope.source_revision,scope.build_id,scope.runtime_instance_id,scope.canonical_identity??'',scope.world_id??'',scope.epoch??'',scope.session_kind??''].join('/');
@@ -13,7 +13,7 @@ export class PlayContextBuffer {
   }
   reset(scope=null){
     this.scope=scope?copy(scope):null;this.events=[];this.frames=[];this.gaps=[];this.snapshot={objects:[]};this.focus={kind:'none',runtime_ids:[]};
-    this.started=this.now();this.lastSeen=this.started;this.lastSequence=null;this.serial=0;this.bytes=0;this.windowSeconds=this.limits.defaultSeconds;
+    this.started=this.now();this.lastSeen=this.started;this.lastSequence=null;this.serial=0;this.bytes=0;this.snapshotBytes=0;this.mapBytes=0;this.windowSeconds=this.limits.defaultSeconds;
     this.objects=new Map();this.lastDiff=-Infinity;this.lastFrame=-Infinity;this.closed=false;
   }
   bind(scope){
@@ -40,9 +40,13 @@ export class PlayContextBuffer {
     if(!this.matches(scope)||!input||typeof input.kind!=='string')return false;
     if(at<this.lastSeen-1000){this.gap('out_of_order_event');return false;}
     at=Math.max(this.lastSeen,at);this.lastSeen=at;
+    let payload;try{payload=observationValue(input.payload??{});}catch{this.gap('invalid_event_payload',{},at);return false;}
+    if(input.kind.length>64||typeof input.source==='string'&&input.source.length>64){this.gap('invalid_event_payload',{},at);return false;}
     const event={id:`event-${++this.serial}`,at_ms:at,kind:input.kind,source:input.source??'client_viewport',
-      resource_id:input.resource_id??scope.resource_id,scene_generation:input.scene_generation??scope.scene_generation,payload:copy(input.payload??{}),
+      resource_id:input.resource_id??scope.resource_id,scene_generation:input.scene_generation??scope.scene_generation,payload,
       ...(input.sequence!=null?{sequence:input.sequence}:{})};
+    const size=playContextBytes(event);
+    if(size>Math.min(this.limits.localBytes,32768)){this.gap('event_size_limit',{},at);return false;}
     // Continuous pointer motion is sampled and collapsed; it cannot consume the
     // budget needed for clicks, transitions, state changes and error evidence.
     const prior=this.events.at(-1);
@@ -54,6 +58,7 @@ export class PlayContextBuffer {
   accept(packet,{at=this.now()}={}){
     if(!this.scope||this.closed||packet?.type!=='play_context'||packet.protocol!==PLAY_CONTEXT_PROTOCOL)return false;
     if(packet.runtime_instance_id!==this.scope.runtime_instance_id||packet.source_revision!==this.scope.source_revision)return false;
+    if(typeof packet.resource_id!=='string'||packet.resource_id.length>180)return false;
     if(!Number.isSafeInteger(packet.scene_generation)||packet.scene_generation<this.scope.scene_generation)return false;
     if(!this.bind({...this.scope,resource_id:packet.resource_id,scene_generation:packet.scene_generation}))return false;
     if(Number.isSafeInteger(packet.sequence)){
@@ -63,22 +68,33 @@ export class PlayContextBuffer {
     }
     if(packet.kind==='event')return this.record({...packet.payload,sequence:packet.sequence,resource_id:packet.resource_id,scene_generation:packet.scene_generation},{at});
     if(packet.kind!=='snapshot')return false;
-    const snapshot=copy(packet.payload??{}),objects=Array.isArray(snapshot.objects)?snapshot.objects.slice(0,this.limits.objects):[];
-    if(snapshot.objects?.length>this.limits.objects||snapshot.truncated)this.gap('object_budget',{limit:this.limits.objects},at);
+    const raw=packet.payload??{};let snapshot={},objects=[];
+    try{
+      for(const name of ['camera','truncated','scanned_nodes','text_input_regions','input_regions_complete','scene_generation','resource_id','mode','runtime_fault','observation_policy'])if(Object.hasOwn(raw,name))snapshot[name]=observationValue(raw[name]);
+      for(const row of (Array.isArray(raw.objects)?raw.objects:[]).slice(0,this.limits.objects))objects.push(observationValue(row));
+    }catch{this.gap('invalid_snapshot_payload',{},at);return false;}
+    if(raw.objects?.length>this.limits.objects||raw.truncated)this.gap('object_budget',{limit:this.limits.objects},at);
+    // Keep the current snapshot and its compact diff index within the same local
+    // budget as frames/events. A single oversized observation is never retained.
+    const snapshotBudget=Math.max(0,Math.floor(this.limits.localBytes/2));
+    while(objects.length&&playContextBytes({...snapshot,objects})>snapshotBudget){objects.pop();snapshot.truncated=true;}
+    if(playContextBytes({...snapshot,objects})>snapshotBudget)snapshot={truncated:true,input_regions_complete:false};
+    if(objects.length<(raw.objects?.length??0))this.gap('snapshot_size_limit',{},at);
     const next=new Map(objects.map(row=>[objectKey(row),fingerprint(row)])),added=[],changed=[],removed=[];
     for(const [key,value]of next)if(!this.objects.has(key))added.push(key);else if(this.objects.get(key)!==value)changed.push(key);
     for(const key of this.objects.keys())if(!next.has(key))removed.push(key);
     if((added.length||changed.length||removed.length)&&at-this.lastDiff>=500){
       this.record({kind:'state_changed',source:'engine_observation',payload:{added:added.slice(0,64),changed:changed.slice(0,64),removed:removed.slice(0,64),truncated:Math.max(added.length,changed.length,removed.length)>64}},{at});this.lastDiff=at;
     }
-    this.objects=next;this.snapshot={...snapshot,objects,engine_time_ms:packet.engine_time_ms??null,tick:packet.tick??null,at_ms:at,scene_generation:packet.scene_generation,resource_id:packet.resource_id};
+    this.bytes-=this.snapshotBytes+this.mapBytes;this.objects=next;this.snapshot={...snapshot,objects,engine_time_ms:packet.engine_time_ms??null,tick:packet.tick??null,at_ms:at,scene_generation:packet.scene_generation,resource_id:packet.resource_id};
+    this.snapshotBytes=playContextBytes(this.snapshot);this.mapBytes=[...next].reduce((sum,[key,value])=>sum+String(key).length*2+value.length*2,0);this.bytes+=this.snapshotBytes+this.mapBytes;
     this.lastSeen=Math.max(this.lastSeen,at);this.prune(at);return true;
   }
   addFrame(image,{at=this.now(),scope=this.scope}={}){
     if(!this.matches(scope)||image?.source_revision&&image.source_revision!==scope.source_revision||image?.scene_generation!=null&&image.scene_generation!==scope.scene_generation)return false;
     if(typeof image?.data_url!=='string'||image.data_url.length>this.limits.frameBytes*1.4){this.gap('frame_size_limit',{},at);return false;}
     const frame={id:`frame-${++this.serial}`,at_ms:at,captured_at:this.wallNow(),resource_id:scope.resource_id,scene_generation:scope.scene_generation,data_url:image.data_url,redacted_input_regions:image.redacted_input_regions??0};
-    const size=playContextBytes(frame);this.frames.push(frame);this.bytes+=size;this.lastFrame=at;this.prune(at);return frame;
+    const size=playContextBytes(frame);if(size>this.limits.localBytes){this.gap('frame_size_limit',{},at);return false;}this.frames.push(frame);this.bytes+=size;this.lastFrame=at;this.prune(at);return frame;
   }
   setFocus(value){
     if(!this.scope||this.closed)return;
@@ -95,9 +111,10 @@ export class PlayContextBuffer {
     while(this.events.length>this.limits.events){this.bytes-=playContextBytes(this.events.shift());lost++;}
     // Limit captures independently of time, then shed older frames before events.
     while(this.frames.length>24){this.bytes-=playContextBytes(this.frames.shift());lost++;}
-    while(this.bytes>this.limits.localBytes&&(this.frames.length>1||this.events.length>1)){
-      const entry=this.frames.length>1?this.frames.shift():this.events.shift();this.bytes-=playContextBytes(entry);lost++;
+    while(this.bytes>this.limits.localBytes&&(this.frames.length||this.events.length)){
+      const entry=this.frames.length?this.frames.shift():this.events.shift();this.bytes-=playContextBytes(entry);lost++;
     }
+    if(this.bytes>this.limits.localBytes){this.snapshot={objects:[],truncated:true,input_regions_complete:false};this.objects.clear();this.snapshotBytes=playContextBytes(this.snapshot);this.mapBytes=0;this.bytes=this.snapshotBytes;lost++;}
     if(lost)this.gap('local_budget',{dropped:lost},at);
     this.bytes=Math.max(0,this.bytes);
   }
@@ -121,11 +138,14 @@ export class PlayContextBuffer {
     while(playContextBytes(value)>this.limits.captureBytes&&frames.length>1){frames.splice(0,1);value.gaps.push({reason:'upload_frame_budget'});}
     while(playContextBytes(value)>this.limits.captureBytes&&value.events.length>1){value.events.splice(0,Math.ceil(value.events.length/4));if(!value.gaps.some(g=>g.reason==='upload_event_budget'))value.gaps.push({reason:'upload_event_budget'});}
     if(playContextBytes(value)>this.limits.captureBytes){value.snapshot.objects=value.snapshot.objects.slice(0,64);value.gaps.push({reason:'upload_object_budget'});}
+    while(playContextBytes(value)>this.limits.captureBytes&&value.frames.length){value.frames.pop();if(!value.gaps.some(g=>g.reason==='upload_frame_budget'))value.gaps.push({reason:'upload_frame_budget'});}
+    while(playContextBytes(value)>this.limits.captureBytes&&value.snapshot.objects.length)value.snapshot.objects.pop();
+    if(playContextBytes(value)>this.limits.captureBytes)throw Error('试玩观察超过传输预算，请缩短片段或移除记录后发送');
     return copy(value);
   }
   summary(){
     if(!this.scope||this.closed)return null;
     return summarizePlayCapture(this.freeze({requestId:'summary'}));
   }
-  close(){this.closed=true;this.scope=null;this.events=[];this.frames=[];this.snapshot={objects:[]};this.objects.clear();this.focus={kind:'none',runtime_ids:[]};this.bytes=0;this.gaps=[];}
+  close(){this.closed=true;this.scope=null;this.events=[];this.frames=[];this.snapshot={objects:[]};this.objects.clear();this.focus={kind:'none',runtime_ids:[]};this.bytes=0;this.snapshotBytes=0;this.mapBytes=0;this.gaps=[];}
 }

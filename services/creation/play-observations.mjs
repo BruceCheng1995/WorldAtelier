@@ -77,9 +77,9 @@ export class PlayObservations {
   }
   capture(user,sid,input,{attach=true,liveHandle=null}={}){
     const capture=normalizePlayCapture(input),{session,revision}=this.authorize(user,sid,capture.scope);
-    if(input.live_handle){const window=this.window(user,sid,input.live_handle);if(!samePlayContext(window.scope,capture.scope))fail(409,'观察窗口已切换');liveHandle=window.id;}
     const receiptId=hash([user.id,sid,capture.request_id]),fingerprint=hash(capture),receipt=this.store.get(RECEIPT,receiptId);
     if(receipt){if(receipt.fingerprint!==fingerprint)fail(409,'同一观察请求不能改写历史内容');return {...this.result(user,sid,receipt.observation_id),replayed:true};}
+    if(input.live_handle){const window=this.window(user,sid,input.live_handle);if(!samePlayContext(window.scope,capture.scope))fail(409,'观察窗口已切换');liveHandle=window.id;}
     capture.snapshot.objects=this.sourceObjects(capture,revision.manifest);
     const frames=capture.frames.map(frame=>this.frameBytes(frame));capture.frames=frames.map(frame=>frame.descriptor);
     const knownFrames=new Set(capture.frames.map(frame=>frame.id));

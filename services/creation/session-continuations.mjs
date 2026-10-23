@@ -37,9 +37,10 @@ export class SessionContinuations {
     const allAttachments=fixedMessages.flatMap(m=>m.attachments??[]),sentObservationIds=new Set(allAttachments.filter(a=>a.kind==='play_observation').map(a=>a.observation_id));
     // Never pull an unsent source draft or a message after the explicit cutoff.
     if(selectedIds.some(oid=>!sentObservationIds.has(oid)))fail(409,'选定观察不在截止消息以前，未携带来源草稿');
-    const observations=(selectedIds.length?selectedIds:[...sentObservationIds]).map(oid=>this.service.observations.get(user,sourceId,oid));
+    const observations=(Object.hasOwn(input,'observation_ids')?selectedIds:[...sentObservationIds]).map(oid=>this.service.observations.get(user,sourceId,oid));
+    const carriedObservationIds=new Set(observations.map(observation=>observation.id));
     const sourceBranch=this.store.branchFor(user,source.project_id,source.branch_id),targetRevision=this.store.get('creator_revision',target.head);
-    const references=sourceReferences(allAttachments);
+    const references=sourceReferences(allAttachments.filter(attachment=>!attachment.observation_id||carriedObservationIds.has(attachment.observation_id)));
     for(const observation of observations)for(const row of observation.snapshot.objects??[])if(row.source_reference?.address)references.push({observation_id:observation.id,source_revision:observation.scope.source_revision,resource_id:observation.scope.resource_id,address:row.source_reference.address,object_version:row.source_reference.object_version,name:row.name??''});
     const unique=new Map(references.map(reference=>[hash(reference),reference]));
     const mapping=[...unique.values()].slice(0,512).map(reference=>this.mapReference(reference,targetRevision,source.project_id,target.branch_id));
@@ -56,7 +57,8 @@ export class SessionContinuations {
       context.session_id=session.id;context.sha256=hash(context);this.store.put(CONTEXT,context);
       for(const message of fixedMessages){
         const frozen={id:`${context.id}:${message.sequence}`,context_id:context.id,session_id:session.id,source_session_id:source.id,source_message_id:message.id,source_sequence:message.sequence,
-          role:message.role,content:String(message.content??''),attachments:clone(message.attachments??[]),created_at:message.created_at};
+          role:message.role,content:String(message.content??''),attachments:(message.attachments??[]).map(attachment=>attachment.observation_id&&!carriedObservationIds.has(attachment.observation_id)
+            ?{id:attachment.id,kind:attachment.kind,branch_id:attachment.branch_id,source_revision:attachment.source_revision??null,excluded:true,name:'未携带的试玩观察'}:clone(attachment)),created_at:message.created_at};
         frozen.sha256=hash(frozen);this.store.put(MESSAGE,frozen);
       }
       session.continuation={id:context.id,source_session_id:source.id,source_branch_id:source.branch_id,cutoff_message_id:context.cutoff_message_id,cutoff_sequence:context.cutoff_sequence,target_head_at_creation:target.head};

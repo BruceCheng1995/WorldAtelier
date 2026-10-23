@@ -64,3 +64,12 @@ test('rebinding the same window invalidates its prior generation and pending rea
   assert.throws(()=>f.service.observations.poll(f.owner,f.session.id,first.handle,first),{status:410});
   assert.throws(()=>f.service.observations.current(f.owner,f.session.id,first.handle),{status:410});
 });
+test('duplicate frame identities cannot create ambiguous immutable image references',t=>{
+  const f=contextFixture(t),capture=f.capture();capture.frames.push({...capture.frames[0],at_ms:60001});assert.throws(()=>f.service.observations.capture(f.owner,f.session.id,capture),{status:422});assert.equal(f.store.list('creator_play_observation').length,0);
+});
+test('wrong owners and UTF8 secrets are rejected without invalidating a legitimate window',t=>{
+  const f=contextFixture(t),window=f.service.observations.register(f.owner,f.session.id,{window_id:'window-one',scope:f.scope});
+  assert.throws(()=>f.service.observations.poll(f.other,f.session.id,window.handle,window),{status:403});
+  assert.throws(()=>f.service.observations.poll(f.owner,f.session.id,window.handle,{secret:'界'.repeat(window.secret.length)}),{status:403});
+  assert.deepEqual(f.service.observations.poll(f.owner,f.session.id,window.handle,window).requests,[]);
+});

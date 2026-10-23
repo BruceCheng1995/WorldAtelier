@@ -80,11 +80,12 @@ export function normalizePlayCapture(input){
   if(end_ms-start_ms>PLAY_CONTEXT_LIMITS.maxSeconds*1000+1000)fail('观察片段过长');
   const events=input.events??[],objects=input.snapshot?.objects??[],frames=input.frames??[],gaps=input.gaps??[];
   if(!Array.isArray(events)||events.length>PLAY_CONTEXT_LIMITS.events||!Array.isArray(objects)||objects.length>PLAY_CONTEXT_LIMITS.objects||!Array.isArray(frames)||frames.length>PLAY_CONTEXT_LIMITS.frames||!Array.isArray(gaps)||gaps.length>64)fail('观察数量超过上限');
-  let previous=-1;
+  let previous=-1;const eventIds=new Set(),frameIds=new Set();
   const normalizedEvents=events.map(event=>{
     if(!plain(event))fail('观察事件无效');
     const at_ms=number(event.at_ms,start_ms,end_ms,'事件时间');if(at_ms<previous)fail('观察事件时间逆序');previous=at_ms;
-    return {id:playContextId(event.id),at_ms,kind:bounded(event.kind,64,'事件类型'),
+    const id=playContextId(event.id);if(eventIds.has(id))fail('观察事件身份重复');eventIds.add(id);
+    return {id,at_ms,kind:bounded(event.kind,64,'事件类型'),
       source:['user_input','engine_observation','author_reported','client_viewport'].includes(event.source)?event.source:'client_viewport',
       ...(event.resource_id?{resource_id:playContextId(event.resource_id)}:{}),
       ...(event.scene_generation!=null?{scene_generation:number(event.scene_generation,0,1e9,'事件场景代次')}:{}),
@@ -100,7 +101,8 @@ export function normalizePlayCapture(input){
     window:{requested_seconds,start_ms,end_ms,clock:'browser_monotonic',deterministic_replay:false},events:normalizedEvents,snapshot,
     focus:playFocus(input.focus),gaps:gaps.map(gap=>observationValue(gap)),frames:frames.map(frame=>{
       if(!plain(frame))fail('关键画面无效');
-      const value={id:playContextId(frame.id),at_ms:number(frame.at_ms,start_ms,end_ms,'画面时间'),
+      const id=playContextId(frame.id);if(frameIds.has(id))fail('关键画面身份重复');frameIds.add(id);
+      const value={id,at_ms:number(frame.at_ms,start_ms,end_ms,'画面时间'),
         resource_id:playContextId(frame.resource_id??scope.resource_id),scene_generation:number(frame.scene_generation??scope.scene_generation,0,1e9,'画面场景代次'),
         captured_at:number(frame.captured_at??input.captured_at,0,1e15,'画面捕获时间'),redacted_input_regions:number(frame.redacted_input_regions??0,0,64,'遮盖输入区域数')};
       if(frame.data_url!=null){if(typeof frame.data_url!=='string'||frame.data_url.length>PLAY_CONTEXT_LIMITS.frameBytes*1.4||!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]*={0,2}$/.test(frame.data_url))fail('关键画面格式或大小无效');value.data_url=frame.data_url;}
