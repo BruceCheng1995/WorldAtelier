@@ -33,9 +33,9 @@ export class NativeOffline{
   create(user,input){
     identifier(input.request_id,'工作区请求 ID');const branch=this.store.branchFor(user,input.project_id,input.branch_id??'main',true),revision=input.revision??branch.head;
     const fingerprint=hash({project_id:branch.project_id,branch_id:branch.branch_id,revision:input.revision??null}),key='workspace-'+hash({user_id:user.id,request_id:input.request_id}),old=this.store.get(WORKSPACE,key);
-    if(old){this.workspace(user,key);if(old.fingerprint!==fingerprint)fail(409,'同一工作区请求不能改变参数');return this.snapshot(old);}
+    if(old){this.workspace(user,key);if(old.fingerprint!==fingerprint)fail(409,'同一工作区请求不能改变参数');return clone(old.creation_snapshot??this.snapshot({...old,base_revision:old.initial_revision,version:1},old.initial_revision));}
     if(!this.store.ancestor(revision,branch.head))fail(409,'工作区基线不属于此分支');
-    const workspace={id:key,owner_user_id:user.id,project_id:branch.project_id,branch_id:branch.branch_id,base_revision:revision,initial_revision:revision,version:1,created_at:Date.now(),fingerprint};this.fixed(workspace,revision);this.store.put(WORKSPACE,workspace);return this.snapshot(workspace);
+    const workspace={id:key,owner_user_id:user.id,project_id:branch.project_id,branch_id:branch.branch_id,base_revision:revision,initial_revision:revision,version:1,created_at:Date.now(),fingerprint};this.fixed(workspace,revision);workspace.creation_snapshot=this.snapshot(workspace);this.store.put(WORKSPACE,workspace);return clone(workspace.creation_snapshot);
   }
   list(user,input={}){return this.store.list(WORKSPACE).filter(workspace=>workspace.owner_user_id===user.id&&!workspace.revoked_at&&(!input.project_id||workspace.project_id===input.project_id)).flatMap(workspace=>{try{this.workspace(user,workspace.id);return[{workspace_id:workspace.id,project_id:workspace.project_id,branch_id:workspace.branch_id,base_revision:workspace.base_revision,workspace_version:workspace.version,created_at:workspace.created_at}];}catch{return[];}});}
   view(user,workspaceId,{revision}={}){

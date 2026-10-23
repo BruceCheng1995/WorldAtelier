@@ -124,3 +124,9 @@ test('retention includes received pending blobs and offline templates but exclud
   f.offline.putBlob(f.user,state.workspace_id,upload.upload_id,added.hash,f.archive.read(added));const after=nativeWorkspaceRetention(rows());assert.ok(after.objects.some(file=>file.sha256===added.hash));
   const runtime=f.store.list('creator_native_workspace_runtime')[0];assert.ok(after.objects.some(file=>file.sha256===runtime.template_files['standalone.gd'].hash));
 });
+
+test('checkout replay stays pinned even after the same registered workspace advances',{timeout:30000},async t=>{
+  const f=await fixture(t),request={request_id:'fixed-checkout',project_id:f.p,branch_id:'main'},initial=f.offline.create(f.user,request),remote=f.write({'later.txt':'newer'});
+  f.offline.advance(f.user,initial.workspace_id,{request_id:'pull-forward',base_revision:initial.base_revision,workspace_version:initial.workspace_version,revision:remote});const replay=f.offline.create(f.user,request);
+  assert.deepEqual(replay,initial);assert.equal(f.offline.view(f.user,initial.workspace_id).revision,remote);
+});
