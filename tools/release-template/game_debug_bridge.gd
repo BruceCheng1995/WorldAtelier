@@ -214,6 +214,12 @@ func capture_frame(packet: Dictionary) -> void:
 			image.resize(maxi(1,roundi(image.get_width()*ratio)),maxi(1,roundi(image.get_height()*ratio)),Image.INTERPOLATE_BILINEAR)
 		var bytes = image.save_png_to_buffer()
 		if bytes.size() <= 8*1024*1024:
+			# No await or author callback occurs between this fixed frame, its
+			# read-only projection, and the reply. The host can match their tick.
+			if is_instance_valid(play_context): play_context.snapshot("capture-"+capture_request)
+			if generation != runtime.generation or fixed_document != document_id or fixed_seq != seq:
+				capture_busy = false
+				return
 			emit({"type":"captured_frame","request_id":capture_request,"data_url":"data:image/png;base64,"+Marshalls.raw_to_base64(bytes),"width":image.get_width(),"height":image.get_height(),"seq":fixed_seq,"document_id":fixed_document,"source_revision":runtime.release.revision,"tick":runtime.simulation.tick if is_instance_valid(runtime.simulation) else 0,"engine_time_ms":Time.get_ticks_msec()})
 		else: emit({"type":"captured_frame","request_id":capture_request,"error":"Rendered frame exceeds capture budget","seq":fixed_seq,"document_id":fixed_document,"source_revision":runtime.release.revision})
 	capture_busy = false

@@ -192,15 +192,19 @@ export class PlayContextController {
   }
   async focus(frame=null){
     this.update();if(!this.runtime)throw Error('先运行游戏，再指出希望讨论的内容');
+    const capturedRuntime=this.runtime,capturedScope=structuredClone(this.buffer.scope),capturedBinding=contextKey(this.getContext());
     if(!frame){
-      if(this.getContext().mode!=='inspect'){
-        await this.requestInspect();const deadline=Date.now()+10000;
-        while(this.getContext().mode!=='inspect'&&Date.now()<deadline){if(!this.runtime)throw Error('试玩已结束');await sleep(50);}
-        if(this.getContext().mode!=='inspect')throw Error('个人观察尚未就绪，请稍后再试');
-      }
+      // Capture what the creator was actually looking at BEFORE inspection
+      // hides game UI. The overlay is a read-only image, never re-enabled UI.
       await this.requestSnapshot().catch(()=>{});frame=await this.sampleFrame({force:true});
     }
     if(!frame)throw Error('这次没有取得画面，请重试');
+    if(this.getContext().mode!=='inspect'){
+      await this.requestInspect();const deadline=Date.now()+10000;
+      while(this.getContext().mode!=='inspect'&&Date.now()<deadline){if(!this.runtime)throw Error('试玩已结束');await sleep(50);}
+      if(this.getContext().mode!=='inspect')throw Error('个人观察尚未就绪，请稍后再试');
+    }
+    if(this.runtime!==capturedRuntime||!samePlayContext(capturedScope,this.buffer.scope,{scene:false})||capturedBinding!==contextKey(this.getContext()))throw Error('试玩或会话已经切换，未带入旧画面的聚焦操作');
     this.closeFocus();const preview=this.preview(),host=preview?.host??this.viewport,layer=this.focusLayer=el('div','play-context-focus-layer');layer.tabIndex=0;layer.dataset.playContextFrame=frame.id;
     const image=el('img');image.src=frame.data_url;image.alt='已固定的试玩画面，点选或框出关注范围';image.draggable=false;
     const rectangle=el('div','play-context-focus-rect'),hint=el('div','play-context-focus-hint','点一下或拖出范围，空白区域也可以');
@@ -211,6 +215,7 @@ export class PlayContextController {
     layer.onpointermove=event=>{if(!start)return;const end=point(event);Object.assign(rectangle.style,{left:`${Math.min(start[0],end[0])*100}%`,top:`${Math.min(start[1],end[1])*100}%`,width:`${Math.abs(end[0]-start[0])*100}%`,height:`${Math.abs(end[1]-start[1])*100}%`});};
     layer.onpointerup=event=>{
       if(!start)return;event.preventDefault();event.stopPropagation();const end=point(event),rect=[Math.min(start[0],end[0]),Math.min(start[1],end[1]),Math.abs(end[0]-start[0]),Math.abs(end[1]-start[1])],isPoint=rect[2]+rect[3]<.015;
+      if(this.runtime!==capturedRuntime||capturedBinding!==contextKey(this.getContext())){this.closeFocus();this.onError(Error('会话或试玩已切换，未保存旧聚焦操作'));return;}
       const candidates=projectedFocusCandidates(frame,isPoint?{point:end}:{rect});
       this.buffer.setFocus({kind:isPoint?'screen_point':'screen_region',...(isPoint?{point:end}:{rect}),runtime_ids:candidates.map(row=>row.runtime_id),frame_id:frame.id,at_ms:frame.at_ms,resource_id:frame.resource_id,scene_generation:frame.scene_generation});
       this.replacePrepared();this.included=true;this.sessionChanged=false;this.closeFocus();this.render();this.status.textContent=`已固定关注画面${candidates.length?` · ${candidates.length} 个可能相关对象`:' · 屏幕区域'}，随消息发送`;
