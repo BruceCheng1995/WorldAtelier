@@ -21,7 +21,7 @@ test('canonical play observes dynamic native nodes and real inputs without readi
   const texts={
     'project.godot':'config_version=5\n[application]\nconfig/name="Context engine"\n[display]\nwindow/size/viewport_width=800\nwindow/size/viewport_height=600\n[rendering]\nrenderer/rendering_method="gl_compatibility"\n',
     '.atelier/catalog.json':JSON.stringify({format:1,entry_scene_id:'main',resources:{main:{id:'main',name:'Main',kind:'scene',path:'main.tscn'},actor:{id:'actor',name:'Actor',kind:'prefab',path:'actor.tscn'}}}),
-    'actor.gd':'extends Node3D\nvar getter_reads = 0\n@export var private_value: int:\n\tget:\n\t\tgetter_reads += 1\n\t\treturn 7\nfunc _ready():\n\tset_meta("wa_observation", {"health":12,"payload":PackedByteArray([1,2,3])})\n',
+    'actor.gd':'extends Node3D\nvar getter_reads = 0\n@export var private_value: int:\n\tget:\n\t\tgetter_reads += 1\n\t\treturn 7\nfunc _ready():\n\tset_meta("wa_observation", {"health":12,"payload":PackedByteArray([1,2,3])})\nfunc _input(event):\n\tif event is InputEventKey and event.physical_keycode==KEY_W:\n\t\tset_meta("input_consumed", true)\n\t\tget_viewport().set_input_as_handled()\n',
     'actor.tscn':'[gd_scene load_steps=2 format=3]\n[ext_resource type="Script" path="res://actor.gd" id="1"]\n[node name="Actor" type="Node3D"]\nscript=ExtResource("1")\nmetadata/wa_node_id="actor"\n',
     'main.tscn':'[gd_scene load_steps=2 format=3]\n[ext_resource type="PackedScene" path="res://actor.tscn" id="1"]\n[node name="Main" type="Node3D"]\nmetadata/wa_node_id="main"\n[node name="Fixed" parent="." instance=ExtResource("1")]\nmetadata/wa_instance_id="fixed"\n[node name="Input" type="LineEdit" parent="."]\nmetadata/wa_node_id="input"\noffset_right=100.0\noffset_bottom=30.0\n'
   };
@@ -80,7 +80,22 @@ func _ready():
 \tkey.pressed = true
 \tInput.parse_input_event(key)
 \tawait get_tree().process_frame
-\tcheck(runtime.debug.outbound_log.any(func(e): return e.get("type")=="play_context" and e.get("kind")=="event" and e.payload.kind=="key_down"),"actual parsed input observed")
+\tcheck(spawned.get_meta("input_consumed",false) or scene.get_node("Fixed").get_meta("input_consumed",false),"author script consumed the real gameplay key")
+\tcheck(runtime.debug.outbound_log.filter(func(e): return e.get("type")=="play_context" and e.get("kind")=="event" and e.payload.kind=="key_down").size()==1,"consumed gameplay input observed exactly once")
+\tvar window = get_window()
+\twindow.size = Vector2i(800,600)
+\twindow.content_scale_size = Vector2i(400,300)
+\twindow.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+\tawait get_tree().process_frame
+\truntime.debug.outbound_log.clear()
+\tvar click = InputEventMouseButton.new()
+\tclick.button_index = MOUSE_BUTTON_LEFT
+\tclick.pressed = true
+\tclick.position = Vector2(400,300)
+\tInput.parse_input_event(click)
+\tawait get_tree().process_frame
+\tvar pointers = runtime.debug.outbound_log.filter(func(e): return e.get("type")=="play_context" and e.get("kind")=="event" and e.payload.kind=="pointer_down")
+\tcheck(pointers.size()==1 and absf(pointers[0].payload.payload.position[0]-.5)<.001 and absf(pointers[0].payload.payload.position[1]-.5)<.001,"pre-input window coordinates match logical viewport scaling")
 \tvar field = scene.get_node("Input")
 \tfield.grab_focus()
 \tawait get_tree().process_frame

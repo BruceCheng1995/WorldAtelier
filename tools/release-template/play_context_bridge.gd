@@ -18,12 +18,20 @@ var last_fault = ""
 var enabled = false
 var snapshot_busy = false
 var safe_remaining = 0
+var input_window: Window
 
 func setup(owner_runtime: Node, owner_debug: Node) -> void:
 	runtime = owner_runtime
 	debug = owner_debug
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	set_process_input(true)
+	input_window = get_window()
+	if is_instance_valid(input_window):
+		# Window emits before SceneTree input propagation. Observing Node._input
+		# alone misses keys consumed by later-added author nodes. Never mark an
+		# event handled or change the game's normal input dispatch.
+		input_window.window_input.connect(_window_input)
+		set_process_input(false)
+	else: set_process_input(true)
 	enabled = true
 
 func _active() -> bool:
@@ -74,11 +82,23 @@ func receive(packet: Dictionary) -> void:
 	if request_id.is_empty() or request_id.length() > 180: return
 	if packet.get("action") == "snapshot": snapshot(request_id)
 
+func _window_input(event: InputEvent) -> void:
+	# Window signals use embedder coordinates; _input ordinarily receives the
+	# viewport-local transform. Preserve that same logical coordinate convention.
+	_record_input(event.xformed_by(get_viewport().get_final_transform().affine_inverse()))
+
 func _input(event: InputEvent) -> void:
+	if not is_instance_valid(input_window): _record_input(event)
+
+func _record_input(event: InputEvent) -> void:
 	if not _active() or debug.inspecting: return
 	var viewport_size = get_viewport().get_visible_rect().size
 	var now = Time.get_ticks_msec()
 	var focus = get_viewport().gui_get_focus_owner()
+	if focus == null:
+		var focused_window = Window.get_focused_window()
+		if is_instance_valid(focused_window) and is_instance_valid(input_window) and (focused_window == input_window or input_window.is_ancestor_of(focused_window)):
+			focus = focused_window.gui_get_focus_owner()
 	if event is InputEventKey:
 		if event.echo: return
 		if focus is LineEdit or focus is TextEdit:
@@ -127,6 +147,7 @@ func snapshot(request_id: String = "") -> void:
 	var input_regions: Array = []
 	var objects_truncated = false
 	var scan_overflow = false
+	var input_mask_incomplete = false
 	var maximum_pending = queue.size()
 	var observation_bytes = 0
 	while not queue.is_empty() and scanned < MAX_SCAN:
@@ -138,8 +159,10 @@ func snapshot(request_id: String = "") -> void:
 		if node != scene and not node.scene_file_path.is_empty(): prefab = node.scene_file_path
 		if node is LineEdit or node is TextEdit:
 			if node.is_visible_in_tree():
-				var input_bounds = _screen_bounds(node)
-				if not input_bounds.is_empty(): input_regions.append(input_bounds)
+				if node.get_viewport() != get_viewport(): input_mask_incomplete = true
+				else:
+					var input_bounds = _screen_bounds(node)
+					if not input_bounds.is_empty(): input_regions.append(input_bounds)
 		if objects.size() < MAX_NODES and not objects_truncated:
 			var observed = _observe_node(node, scene, indexed.get(node.get_instance_id(), {}), prefab)
 			var bytes = JSON.stringify(observed).to_utf8_buffer().size()
@@ -165,7 +188,7 @@ func snapshot(request_id: String = "") -> void:
 		camera_data = {"dimension":"3d", "position":_vec3(camera.global_position), "projection":"perspective" if camera.projection == Camera3D.PROJECTION_PERSPECTIVE else "orthographic", "fov":camera.fov, "size":camera.size, "near":camera.near, "far":camera.far, "viewport_size":[get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y]}
 	_emit("snapshot", {"objects":objects, "camera":camera_data, "truncated":objects_truncated or scan_overflow or not queue.is_empty(), "scanned_nodes":scanned,
 		"maximum_pending_nodes":maximum_pending,"indexed_nodes":indexed.size(),"index_truncated":index_truncated,"observation_bytes":observation_bytes,
-		"text_input_regions":input_regions.slice(0,64), "input_regions_complete":not scan_overflow and queue.is_empty() and input_regions.size() <= 64,
+		"text_input_regions":input_regions.slice(0,64), "input_regions_complete":not input_mask_incomplete and not scan_overflow and queue.is_empty() and input_regions.size() <= 64,
 		"scene_generation":runtime.generation, "resource_id":runtime.current_scene_id, "mode":"inspect" if debug.inspecting else "play", "runtime_fault":str(runtime.failure).left(2000),
 		"observation_policy":"Built-in spatial/UI values and explicit wa_observation metadata only; no arbitrary author methods or script-property getters."}, request_id)
 	snapshot_busy = false
@@ -275,3 +298,6 @@ func _safe(value: Variant, depth: int = 0) -> Variant:
 	if value is Vector2: return [value.x, value.y]
 	if value is Vector3: return _vec3(value)
 	return null # Resources, Objects, packed arrays and functions stay in-engine.
+
+func _exit_tree() -> void:
+	if is_instance_valid(input_window) and input_window.window_input.is_connected(_window_input): input_window.window_input.disconnect(_window_input)
