@@ -73,3 +73,13 @@ test('wrong owners and UTF8 secrets are rejected without invalidating a legitima
   assert.throws(()=>f.service.observations.poll(f.owner,f.session.id,window.handle,{secret:'界'.repeat(window.secret.length)}),{status:403});
   assert.deepEqual(f.service.observations.poll(f.owner,f.session.id,window.handle,window).requests,[]);
 });
+test('historical frame mappings retain their own observed pose and unsynchronized focus cannot borrow current objects',t=>{
+  const f=contextFixture(t),capture=f.capture();capture.focus={...capture.focus,frame_id:'frame-one',resource_id:'room',scene_generation:1};
+  capture.frames[0].projection={synchronized:true,status:'frozen_observation',observed_at_ms:59980,offset_ms:20,tick:10,objects:structuredClone(capture.snapshot.objects)};
+  capture.snapshot.objects[0].position=[90,0,0];
+  const saved=f.service.observations.capture(f.owner,f.session.id,capture),historical=f.service.observations.read(f.owner,f.session.id,saved.observation_id,{section:'objects',frame_id:'frame-one'});
+  assert.deepEqual(historical.items[0].position,[3,0,0]);assert.equal(historical.projection.offset_ms,20);
+  assert.deepEqual(f.service.observations.read(f.owner,f.session.id,saved.observation_id,{section:'objects'}).items[0].position,[90,0,0]);
+  const unsynced=f.capture();unsynced.focus={...unsynced.focus,frame_id:'frame-one'};unsynced.frames[0].projection={...capture.frames[0].projection,synchronized:false,status:'unsynchronized'};
+  const second=f.service.observations.capture(f.owner,f.session.id,unsynced),fixed=f.service.observations.get(f.owner,f.session.id,second.observation_id);assert.deepEqual(fixed.focus.runtime_ids,[]);assert.equal(fixed.focus.kind,'screen_region');
+});

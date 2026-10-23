@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PlayContextBuffer} from '../../apps/creation-workspace/play-context-buffer.js';
+import {PlayContextBuffer,projectedFocusCandidates} from '../../apps/creation-workspace/play-context-buffer.js';
 import {PLAY_CONTEXT_PROTOCOL,normalizePlayCapture} from '../../packages/contracts/play-context.mjs';
 
 const scope={project_id:'p',branch_id:'main',source_revision:'src-one',build_id:'build-one',runtime_instance_id:'run-one',resource_id:'room',scene_generation:1};
@@ -54,4 +54,17 @@ test('a single oversized event or snapshot is rejected or trimmed before it can 
 test('shared authority epoch change discards the prior authority buffer even if the iframe and scene remain',()=>{
   const {buffer,set}=fixture();buffer.bind({...scope,world_id:'world-one',epoch:1,session_kind:'shared_world'});set(10);buffer.record({kind:'pointer_down',payload:{}});
   buffer.bind({...scope,world_id:'world-one',epoch:2,session_kind:'shared_world'});assert.equal(buffer.events.length,0);assert.equal(buffer.scope.epoch,2);
+});
+test('focusing a historical frame uses its fixed projection even when objects later move or disappear',()=>{
+  const {buffer,set}=fixture();set(100);buffer.accept(packet(1,{kind:'snapshot',tick:4,payload:{objects:[{runtime_id:'moving',name:'Door',visible:true,screen_bounds:[.1,.1,.2,.2]}],mode:'inspect'}}));
+  set(120);const frame=buffer.addFrame({data_url:'data:image/png;base64,YQ==',mode:'inspect'});assert.equal(frame.projection.synchronized,true);
+  set(1000);buffer.accept(packet(2,{kind:'snapshot',tick:8,payload:{objects:[{runtime_id:'new-object',visible:true,screen_bounds:[.1,.1,.2,.2]},{runtime_id:'moving',visible:true,screen_bounds:[.7,.7,.2,.2]}],mode:'play'}}));
+  assert.deepEqual(projectedFocusCandidates(frame,{point:[.2,.2]}).map(row=>row.runtime_id),['moving']);assert.deepEqual(projectedFocusCandidates(frame,{point:[.8,.8]}),[]);
+  assert.equal(frame.projection.objects.length,1,'new nodes never appear in old frame metadata');
+});
+test('unsynchronized live and delayed frames keep screen intent without guessing node identity',()=>{
+  const {buffer,set}=fixture();set(100);buffer.accept(packet(1,{kind:'snapshot',tick:4,payload:{objects:[{runtime_id:'moving',visible:true,screen_bounds:[.1,.1,.2,.2]}],mode:'play'}}));
+  set(120);const live=buffer.addFrame({data_url:'data:image/png;base64,YQ==',mode:'play'});assert.equal(live.projection.synchronized,false);assert.deepEqual(projectedFocusCandidates(live,{point:[.2,.2]}),[]);
+  const matched=buffer.addFrame({data_url:'data:image/png;base64,YQ==',mode:'play',tick:4});assert.equal(matched.projection.synchronized,true);
+  set(900);const late=buffer.addFrame({data_url:'data:image/png;base64,YQ==',mode:'play',tick:4});assert.equal(late.projection.synchronized,false);
 });

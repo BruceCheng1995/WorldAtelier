@@ -4,6 +4,15 @@ const copy=value=>structuredClone(value);
 const keyOf=scope=>scope&&[scope.project_id,scope.branch_id,scope.source_revision,scope.build_id,scope.runtime_instance_id,scope.canonical_identity??'',scope.world_id??'',scope.epoch??'',scope.session_kind??''].join('/');
 const objectKey=row=>row.runtime_id??row.id;
 const fingerprint=row=>JSON.stringify([row.visible,row.position,row.world_matrix,row.canvas_transform,row.control,row.observed_values,row.mapping,row.parent_runtime_id]);
+const projectedRow=row=>Object.fromEntries(['runtime_id','name','native_type','source','mapping','visible','screen_bounds','position','world_matrix','canvas_transform'].filter(key=>Object.hasOwn(row,key)).map(key=>[key,copy(row[key])]));
+
+export function projectedFocusCandidates(frame,{point=null,rect=null}={}){
+  if(frame?.projection?.synchronized!==true)return [];
+  return (frame.projection.objects??[]).filter(row=>{
+    const bounds=row.screen_bounds;if(row.visible===false||!Array.isArray(bounds)||bounds.length!==4)return false;
+    return point?point[0]>=bounds[0]&&point[0]<=bounds[0]+bounds[2]&&point[1]>=bounds[1]&&point[1]<=bounds[1]+bounds[3]:rect&&rect[0]<bounds[0]+bounds[2]&&rect[0]+rect[2]>bounds[0]&&rect[1]<bounds[1]+bounds[3]&&rect[1]+rect[3]>bounds[1];
+  }).slice(0,64);
+}
 
 /** A memory-only, current-window rolling record. It never reads DOM text,
  * keyboard input outside the game, cookies or storage, and never uploads. */
@@ -93,7 +102,13 @@ export class PlayContextBuffer {
   addFrame(image,{at=this.now(),scope=this.scope}={}){
     if(!this.matches(scope)||image?.source_revision&&image.source_revision!==scope.source_revision||image?.scene_generation!=null&&image.scene_generation!==scope.scene_generation)return false;
     if(typeof image?.data_url!=='string'||image.data_url.length>this.limits.frameBytes*1.4){this.gap('frame_size_limit',{},at);return false;}
-    const frame={id:`frame-${++this.serial}`,at_ms:at,captured_at:this.wallNow(),resource_id:scope.resource_id,scene_generation:scope.scene_generation,data_url:image.data_url,redacted_input_regions:image.redacted_input_regions??0};
+    const observedAt=this.snapshot.at_ms,offset=Number.isFinite(observedAt)?at-observedAt:null;
+    const matching=this.snapshot.scene_generation===scope.scene_generation&&this.snapshot.resource_id===scope.resource_id;
+    const frozen=matching&&image.mode==='inspect'&&this.snapshot.mode==='inspect',matchedTick=matching&&Number.isFinite(image.tick)&&image.tick===this.snapshot.tick;
+    const synchronized=matching&&offset!==null&&offset>=0&&offset<=500&&(frozen||matchedTick);
+    const projection={synchronized,status:synchronized?(frozen?'frozen_observation':'matched_tick'):'unsynchronized',observed_at_ms:observedAt??null,offset_ms:offset,
+      tick:this.snapshot.tick??null,source:'client_engine_projected_bounds',objects:matching&&offset!==null&&offset>=0&&offset<=1500?this.snapshot.objects.slice(0,128).map(projectedRow):[]};
+    const frame={id:`frame-${++this.serial}`,at_ms:at,captured_at:this.wallNow(),resource_id:scope.resource_id,scene_generation:scope.scene_generation,data_url:image.data_url,redacted_input_regions:image.redacted_input_regions??0,projection};
     const size=playContextBytes(frame);if(size>this.limits.localBytes){this.gap('frame_size_limit',{},at);return false;}this.frames.push(frame);this.bytes+=size;this.lastFrame=at;this.prune(at);return frame;
   }
   setFocus(value){
@@ -135,10 +150,11 @@ export class PlayContextBuffer {
     if(!frames.length)gaps.push({reason:'no_keyframes'});
     const value={protocol:PLAY_CONTEXT_PROTOCOL,request_id:requestId,scope:copy(this.scope),captured_at:this.wallNow(),
       window:{requested_seconds:Math.min(seconds,this.limits.maxSeconds),start_ms:start,end_ms:end},events,snapshot:copy(this.snapshot),focus:copy(this.focus),gaps,frames};
-    while(playContextBytes(value)>this.limits.captureBytes&&frames.length>1){frames.splice(0,1);value.gaps.push({reason:'upload_frame_budget'});}
+    const dropFrame=()=>{const unrelated=frames.findIndex(frame=>frame.id!==value.focus.frame_id),index=unrelated<0?0:unrelated;const [removed]=frames.splice(index,1);if(removed.id===value.focus.frame_id)value.focus.runtime_ids=[];};
+    while(playContextBytes(value)>this.limits.captureBytes&&frames.length>1){dropFrame();if(!value.gaps.some(g=>g.reason==='upload_frame_budget'))value.gaps.push({reason:'upload_frame_budget'});}
     while(playContextBytes(value)>this.limits.captureBytes&&value.events.length>1){value.events.splice(0,Math.ceil(value.events.length/4));if(!value.gaps.some(g=>g.reason==='upload_event_budget'))value.gaps.push({reason:'upload_event_budget'});}
     if(playContextBytes(value)>this.limits.captureBytes){value.snapshot.objects=value.snapshot.objects.slice(0,64);value.gaps.push({reason:'upload_object_budget'});}
-    while(playContextBytes(value)>this.limits.captureBytes&&value.frames.length){value.frames.pop();if(!value.gaps.some(g=>g.reason==='upload_frame_budget'))value.gaps.push({reason:'upload_frame_budget'});}
+    while(playContextBytes(value)>this.limits.captureBytes&&value.frames.length){dropFrame();if(!value.gaps.some(g=>g.reason==='upload_frame_budget'))value.gaps.push({reason:'upload_frame_budget'});}
     while(playContextBytes(value)>this.limits.captureBytes&&value.snapshot.objects.length)value.snapshot.objects.pop();
     if(playContextBytes(value)>this.limits.captureBytes)throw Error('试玩观察超过传输预算，请缩短片段或移除记录后发送');
     return copy(value);

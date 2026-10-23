@@ -73,7 +73,8 @@ export class PlayObservations {
     if(bytes.length>PLAY_CONTEXT_LIMITS.frameBytes)fail(413,'观察图片超过大小上限');
     const sha256=hash(bytes),file=resolve(this.directory,sha256);
     if(!existsSync(file))writeFileSync(file,bytes,{flag:'wx',mode:0o600});
-    return {bytes,descriptor:{id:frame.id,at_ms:frame.at_ms,captured_at:frame.captured_at,resource_id:frame.resource_id,scene_generation:frame.scene_generation,redacted_input_regions:frame.redacted_input_regions,sha256,bytes:bytes.length,mime:info.mime,width:info.width,height:info.height,source:'client_rendered_frame'}};
+    return {bytes,descriptor:{id:frame.id,at_ms:frame.at_ms,captured_at:frame.captured_at,resource_id:frame.resource_id,scene_generation:frame.scene_generation,redacted_input_regions:frame.redacted_input_regions,
+      ...(frame.projection?{projection:clone(frame.projection)}:{}),sha256,bytes:bytes.length,mime:info.mime,width:info.width,height:info.height,source:'client_rendered_frame'}};
   }
   capture(user,sid,input,{attach=true,liveHandle=null}={}){
     const capture=normalizePlayCapture(input),{session,revision}=this.authorize(user,sid,capture.scope);
@@ -81,9 +82,22 @@ export class PlayObservations {
     if(receipt){if(receipt.fingerprint!==fingerprint)fail(409,'同一观察请求不能改写历史内容');return {...this.result(user,sid,receipt.observation_id),replayed:true};}
     if(input.live_handle){const window=this.window(user,sid,input.live_handle);if(!samePlayContext(window.scope,capture.scope))fail(409,'观察窗口已切换');liveHandle=window.id;}
     capture.snapshot.objects=this.sourceObjects(capture,revision.manifest);
+    for(const frame of capture.frames){
+      if(!revision.manifest.resources[frame.resource_id]||frame.scene_generation>capture.scope.scene_generation)fail(409,'关键画面的场景不属于这次固定运行');
+      if(frame.projection)frame.projection.objects=this.sourceObjects({...capture,scope:{...capture.scope,resource_id:frame.resource_id,scene_generation:frame.scene_generation},snapshot:{objects:frame.projection.objects}},revision.manifest);
+    }
     const frames=capture.frames.map(frame=>this.frameBytes(frame));capture.frames=frames.map(frame=>frame.descriptor);
     const knownFrames=new Set(capture.frames.map(frame=>frame.id));
-    if(capture.focus.frame_id&&!knownFrames.has(capture.focus.frame_id))capture.gaps.push({reason:'focus_frame_unavailable'});
+    if(capture.focus.frame_id&&!knownFrames.has(capture.focus.frame_id)){capture.focus.runtime_ids=[];capture.gaps.push({reason:'focus_frame_unavailable'});}
+    const focusFrame=capture.frames.find(frame=>frame.id===capture.focus.frame_id);
+    if(focusFrame){
+      if(capture.focus.resource_id!=null&&capture.focus.resource_id!==focusFrame.resource_id||capture.focus.scene_generation!=null&&capture.focus.scene_generation!==focusFrame.scene_generation)fail(409,'聚焦与关键画面身份不一致');
+      const members=new Set(focusFrame.projection?.objects?.map(row=>row.runtime_id)??[]);
+      if(capture.focus.runtime_ids.length&&(focusFrame.projection?.synchronized!==true||capture.focus.runtime_ids.some(rid=>!members.has(rid)))){
+        capture.focus.runtime_ids=[];capture.gaps.push({reason:'focus_projection_unavailable',note:'屏幕意图已保留；没有同一画面的可靠对象投影。'});
+      }
+      capture.focus.projection_status=focusFrame.projection?.status??'unavailable';capture.focus.projection_offset_ms=focusFrame.projection?.offset_ms??null;
+    }
     const snapshotIds=new Set(capture.snapshot.objects.map(row=>row.runtime_id));
     if(capture.focus.runtime_ids.some(rid=>!snapshotIds.has(rid)))capture.gaps.push({reason:'focused_objects_no_longer_in_current_snapshot'});
     const observation={...capture,id:id('observation'),session_id:sid,owner_user_id:user.id,stored_at:this.now(),live_handle:liveHandle,summary:summarizePlayCapture(capture)};
@@ -99,7 +113,9 @@ export class PlayObservations {
         // A small selection of actual frames uses the existing image-attachment
         // path, so the model receives native visual inputs, not encoded pixels.
         const slots=Math.max(0,Math.min(3,8-current.draft_attachments.filter(a=>a.kind==='image').length));
-        const selected=slots?frames.slice(-slots):[];
+        const selections=new Map();const selectedFocus=frames.find(frame=>frame.descriptor.id===capture.focus.frame_id);if(selectedFocus)selections.set(selectedFocus.descriptor.id,selectedFocus);
+        for(const frame of [...frames].reverse())if(selections.size<slots)selections.set(frame.descriptor.id,frame);
+        const selected=slots?[...selections.values()].slice(0,slots).sort((a,b)=>a.descriptor.at_ms-b.descriptor.at_ms):[];
         if(slots&&this.service?.sessionImages)for(const frame of selected){
           const image=this.service.sessionImages.attach(user,sid,{bytes:frame.bytes,mime:frame.descriptor.mime,name:`试玩关键画面 · ${Math.round((frame.descriptor.at_ms-capture.window.start_ms)/100)/10}s`});
           const saved=this.store.sessionFor(user,sid,true),target=saved.draft_attachments.find(a=>a.id===image.id);
@@ -129,8 +145,12 @@ export class PlayObservations {
     switch(options.section??'summary'){
       case 'summary':return {...base,focus:clone(value.focus),snapshot:{...clone(value.snapshot),objects:undefined},available_sections:['events','objects','frames']};
       case 'events':return {...base,...page(value.events,options),gaps:clone(value.gaps)};
-      case 'objects':return {...base,...page(options.runtime_id?value.snapshot.objects.filter(row=>row.runtime_id===options.runtime_id):value.snapshot.objects,options)};
-      case 'frames':return {...base,...page(value.frames.map(frame=>({...frame,url:`/creation-api/sessions/${encodeURIComponent(sid)}/play-context/observations/${value.id}/frames/${frame.id}`})),options)};
+      case 'objects':{
+        const frame=options.frame_id?value.frames.find(frame=>frame.id===options.frame_id):null;if(options.frame_id&&!frame)fail(404,'关键画面不存在');
+        const rows=frame?(frame.projection?.synchronized?frame.projection.objects:[]):value.snapshot.objects;
+        return {...base,...(frame?{frame_id:frame.id,projection:frame.projection?{...frame.projection,objects:undefined}:null}:{}),...page(options.runtime_id?rows.filter(row=>row.runtime_id===options.runtime_id):rows,options)};
+      }
+      case 'frames':return {...base,...page(value.frames.map(frame=>({...frame,projection:frame.projection?{...frame.projection,object_count:frame.projection.objects.length,objects:undefined}:undefined,url:`/creation-api/sessions/${encodeURIComponent(sid)}/play-context/observations/${value.id}/frames/${frame.id}`})),options)};
       default:fail(400,'未知的试玩观察读取范围');
     }
   }
@@ -140,7 +160,7 @@ export class PlayObservations {
   }
   materializeFrame(user,sid,oid,fid,cwd){
     const {frame,bytes}=this.image(user,sid,oid,fid),path=`context/play-observations/${frame.sha256}.${frame.mime==='image/jpeg'?'jpg':frame.mime.slice(6)}`;
-    writeWorkspaceFile(cwd,path,bytes);return {...frame,path:resolve(cwd,path)};
+    writeWorkspaceFile(cwd,path,bytes);return {...frame,projection:frame.projection?{...frame.projection,objects:undefined,object_count:frame.projection.objects.length}:undefined,path:resolve(cwd,path)};
   }
   register(user,sid,input){
     if(this.closed)fail(503,'观察服务正在关闭');

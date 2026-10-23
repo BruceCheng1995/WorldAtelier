@@ -1,5 +1,5 @@
 import {randomUUID} from './client-platform.js';
-import {PlayContextBuffer} from './play-context-buffer.js';
+import {PlayContextBuffer,projectedFocusCandidates} from './play-context-buffer.js';
 import {PLAY_CONTEXT_PROTOCOL,samePlayContext,summarizePlayCapture} from '../../packages/contracts/play-context.mjs';
 
 const el=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!=null)node.textContent=text;return node;};
@@ -96,12 +96,12 @@ export class PlayContextController {
     }finally{bitmap.close();}
   }
   sampleFrame({force=false,event=false}={}){
-    this.update();const preview=this.preview(),scope=this.buffer.scope,generation=this.generation;
+    this.update();const preview=this.preview(),scope=this.buffer.scope,generation=this.generation,capturedMode=this.getContext()?.mode;
     if(this.frameJob)return this.frameJob;
     if(!this.runtime||!scope||!preview?.ready||preview.pending||document.visibilityState==='hidden')return Promise.resolve(null);
     if(!force&&performance.now()-this.buffer.lastFrame<(event?2500:7000))return Promise.resolve(null);
     const work=(async()=>{
-      try{if(performance.now()-(this.buffer.snapshot.at_ms??-Infinity)>1500)await this.requestSnapshot();const image=await this.compactFrame(await preview.captureFrame());if(generation!==this.generation||preview!==this.preview()||!samePlayContext(scope,this.buffer.scope))return null;return this.buffer.addFrame(image,{scope});}
+      try{if(performance.now()-(this.buffer.snapshot.at_ms??-Infinity)>1500)await this.requestSnapshot();const image=await this.compactFrame(await preview.captureFrame());if(generation!==this.generation||preview!==this.preview()||!samePlayContext(scope,this.buffer.scope)||capturedMode!==this.getContext()?.mode)return null;return this.buffer.addFrame({...image,mode:capturedMode},{scope});}
       catch(error){if(generation===this.generation)this.buffer.gap('frame_capture_failed');if(force)throw error;return null;}
     })();this.frameJob=work;return work.finally(()=>{if(this.frameJob===work)this.frameJob=null;});
   }
@@ -183,10 +183,7 @@ export class PlayContextController {
     layer.onpointermove=event=>{if(!start)return;const end=point(event);Object.assign(rectangle.style,{left:`${Math.min(start[0],end[0])*100}%`,top:`${Math.min(start[1],end[1])*100}%`,width:`${Math.abs(end[0]-start[0])*100}%`,height:`${Math.abs(end[1]-start[1])*100}%`});};
     layer.onpointerup=event=>{
       if(!start)return;event.preventDefault();event.stopPropagation();const end=point(event),rect=[Math.min(start[0],end[0]),Math.min(start[1],end[1]),Math.abs(end[0]-start[0]),Math.abs(end[1]-start[1])],isPoint=rect[2]+rect[3]<.015;
-      const candidates=frame.scene_generation===this.buffer.scope?.scene_generation&&frame.resource_id===this.buffer.scope.resource_id?this.buffer.snapshot.objects.filter(row=>{
-        const b=row.screen_bounds;if(row.visible===false||!Array.isArray(b)||b.length!==4)return false;
-        return isPoint?end[0]>=b[0]&&end[0]<=b[0]+b[2]&&end[1]>=b[1]&&end[1]<=b[1]+b[3]:rect[0]<b[0]+b[2]&&rect[0]+rect[2]>b[0]&&rect[1]<b[1]+b[3]&&rect[1]+rect[3]>b[1];
-      }).slice(0,64):[];
+      const candidates=projectedFocusCandidates(frame,isPoint?{point:end}:{rect});
       this.buffer.setFocus({kind:isPoint?'screen_point':'screen_region',...(isPoint?{point:end}:{rect}),runtime_ids:candidates.map(row=>row.runtime_id),frame_id:frame.id,at_ms:frame.at_ms,resource_id:frame.resource_id,scene_generation:frame.scene_generation});
       this.prepared=null;this.included=true;this.sessionChanged=false;this.closeFocus();this.render();this.status.textContent=`已固定关注画面${candidates.length?` · ${candidates.length} 个可能相关对象`:' · 屏幕区域'}，随消息发送`;
     };

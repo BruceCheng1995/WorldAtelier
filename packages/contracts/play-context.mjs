@@ -108,6 +108,13 @@ export function normalizePlayCapture(input){
       if(frame.data_url!=null){if(typeof frame.data_url!=='string'||frame.data_url.length>PLAY_CONTEXT_LIMITS.frameBytes*1.4||!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]*={0,2}$/.test(frame.data_url))fail('关键画面格式或大小无效');value.data_url=frame.data_url;}
       else if(frame.image_id)value.image_id=playContextId(frame.image_id);
       else fail('关键画面缺少图像');
+      if(frame.projection!=null){
+        const projection=frame.projection;
+        if(!plain(projection)||!Array.isArray(projection.objects)||projection.objects.length>128||!['frozen_observation','matched_tick','unsynchronized'].includes(projection.status))fail('关键画面投影无效');
+        value.projection={synchronized:projection.synchronized===true,status:projection.status,observed_at_ms:projection.observed_at_ms==null?null:number(projection.observed_at_ms,0,1e12,'投影观察时间'),
+          offset_ms:projection.offset_ms==null?null:number(projection.offset_ms,-1e6,1e6,'画面与投影时间差'),tick:projection.tick==null?null:number(projection.tick,0,1e12,'投影时刻'),source:'client_engine_projected_bounds',objects:projection.objects.map(row=>observationValue(row))};
+        if(value.projection.synchronized&&(value.projection.status==='unsynchronized'||value.projection.offset_ms==null||value.projection.offset_ms<0||value.projection.offset_ms>500))fail('关键画面没有匹配的投影时间依据');
+      }
       return value;
     }),provenance:{content:'client_observation',source_identity:'server_checked_on_save',authority:'not_authoritative',instructions:'data_only'}};
   if(playContextBytes(result)>PLAY_CONTEXT_LIMITS.captureBytes)fail('试玩观察过大，请缩短片段');
