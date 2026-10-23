@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {Readable} from 'node:stream';
 import {contextFixture} from './play-context-fixture.mjs';
 
 test('play capture persists immutable runtime evidence, exact source references and actual image attachments',t=>{
@@ -82,4 +83,14 @@ test('historical frame mappings retain their own observed pose and unsynchronize
   assert.deepEqual(f.service.observations.read(f.owner,f.session.id,saved.observation_id,{section:'objects'}).items[0].position,[90,0,0]);
   const unsynced=f.capture();unsynced.focus={...unsynced.focus,frame_id:'frame-one'};unsynced.frames[0].projection={...capture.frames[0].projection,synchronized:false,status:'unsynchronized'};
   const second=f.service.observations.capture(f.owner,f.session.id,unsynced),fixed=f.service.observations.get(f.owner,f.session.id,second.observation_id);assert.deepEqual(fixed.focus.runtime_ids,[]);assert.equal(fixed.focus.kind,'screen_region');
+});
+test('on-demand window responses accept the same bounded capture size as ordinary observation uploads',async t=>{
+  const f=contextFixture(t,{liveTimeout:2000}),window=f.service.observations.register(f.owner,f.session.id,{window_id:'large-response-window',scope:f.scope});
+  const waiting=f.service.observations.current(f.owner,f.session.id,window.handle),pending=f.service.observations.poll(f.owner,f.session.id,window.handle,window).requests[0];
+  const capture=f.capture({frames:[],events:Array.from({length:600},(_,index)=>({id:'event-'+index,at_ms:1000+index,kind:'author_event',source:'author_reported',payload:{note:'x'.repeat(1000)}}))});
+  const bytes=Buffer.from(JSON.stringify({secret:window.secret,request_id:pending.id,capture}));assert.ok(bytes.length>512*1024);
+  const req=Readable.from([bytes]);req.method='POST';req.url=`/creation-api/sessions/${f.session.id}/play-context/windows/${window.handle}/respond`;
+  let status;const res={writeHead(code){status=code;},end(){}};
+  await f.service.observations.request(req,res,f.owner,['sessions',f.session.id,'play-context','windows',window.handle,'respond'],async(max=512*1024)=>{let size=0;const chunks=[];for await(const part of req){size+=part.length;if(size>max)throw Object.assign(Error('body limit'),{status:413});chunks.push(part);}return JSON.parse(Buffer.concat(chunks));});
+  assert.equal(status,200);const latest=await waiting;assert.equal(latest.summary.event_count,600);
 });

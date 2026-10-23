@@ -221,7 +221,7 @@ export class PlayObservations {
       const {frame,bytes}=this.image(user,sid,oid,fid);res.writeHead(200,{'Content-Type':frame.mime,'Content-Length':bytes.length,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});res.end(bytes);return true;
     }
     if(kind==='windows'&&req.method==='POST'){
-      const input=await readBody();let result;
+      const input=await readBody(sub==='respond'?4*1024*1024:512*1024);let result;
       if(oid==='register'&&!sub)result=this.register(user,sid,input);
       else if(sub==='poll')result=this.poll(user,sid,oid,input);
       else if(sub==='respond')result=this.respond(user,sid,oid,input);
