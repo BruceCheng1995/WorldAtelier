@@ -37,6 +37,28 @@ nativeMergePanel.open(context(),project.branches.filter(b=>b.branch_id!==branch.
 
 这是分支级操作；`assertCurrent` 不必绑定某个资源 tab，合并可能合法删除当前文档。模块复用现有 modal/CSS，没有新页面或后台。
 
+## Agent 解释冲突与组合修复
+
+`services/creation/native-merge-agent.mjs` 导出 `BRANCH_MERGE_TOOLS`、`BRANCH_MERGE_READ_TOOLS`、`BRANCH_MERGE_TOOL_NAMES` 和 `dispatchBranchMergeTool`。把工具定义加入当前 `CREATION_TOOLS`，将三项 read 工具加入规划模式只读集合，在既有工具回执检查后派发：
+
+```js
+value=await dispatchBranchMergeTool({
+  service:this.service,user,session,run,tool:request.tool,args,
+  guard:()=>this.assertRun(request),signal:request.signal
+});
+```
+
+- `branch_merge_preview`：`expected_head` 加有序 `source_branch_ids`，或单独 `revert_revision`；只创建固定候选。
+- `branch_merge_read`：按 `preview_id` 返回精简摘要，`section:changes/conflicts` 分页；`section:fragment` 按 `conflict_key`、`side`、`start/length` 读取最多 16384 字符。二进制和大 PackedArray 返回引用，不内联原始数据。
+- `branch_merge_review`：在固定计划上预演 `resolutions`，不推进源稿。
+- `branch_merge_apply`：必须提供固定 `plan_identity` 和 `expected_head`，使用当前 run lease 和 session 目标分支原子提交，写入 `run.changes`，发原协作通知。源码保存不等于构建或发布。实际回执重试仍幂等；其他过期计划须重新 preview，旧选择不能套到变化后的 fingerprint。
+
+工具不接受 caller 指定 project/target branch。完整 scope、权限、规划模式、run 状态/代次和取消信号在异步准备前后都检查。旧历史计划可以读取并标记 stale，不能由说明文本变成新写授权。原生源、评论、名字和脚本片段始终作为待分析数据。
+
+前端 `createNativeMergePanel` 新增 `onDiscuss({scope,preview,resolutions})`。主工作台回调可选择当前本人会话或创建目标分支私人会话，再通过 `createBranchMergeDraft(service,user,sessionId,{preview_id,resolutions?,note?,request_id?})` 加入草稿。建议路由 `POST /creation-api/sessions/:id/merge-attachments`。该 helper 返回 `{attachment,session,draft_only:true}`，不发送消息、不启动 Agent turn；附件 `role:reference` 避免被误识别成某个场景对象的写目标。
+
+附件只固定原计划与用户当时提出的决议，不代表用户已经确认应用；原来源版本、目标版本和历史内容保持不变。已有 `attachmentReferences` 会把完整快照写成会话内引用文件，模型默认只见名称/身份，通过工具按需读冲突。
+
 ## 原生离线服务
 
 初始化：

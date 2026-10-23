@@ -18,6 +18,11 @@ test('native lossless view preserves every byte including unknown multiline prop
   const withString=scene.replace('visible = true','custom = "first\n[node not_a_section]\nlast"\nvisible = true');assert.ok(parseNativeText(withString));assert.equal(parseNativeText(withString).sections.length,3);
 });
 
+test('stable instance chains include mount ancestors omitted by inherited scene serialization',()=>{
+  const text='[gd_scene format=3]\n[node name="Root" type="Node3D"]\nmetadata/wa_node_id = "root"\n[node name="A" type="Node3D" parent="."]\nmetadata/wa_instance_id = "instance-a"\n[node name="Leaf" type="Node3D" parent="A/InheritedParent"]\nmetadata/wa_node_id = "shared-leaf"\n[node name="B" type="Node3D" parent="."]\nmetadata/wa_instance_id = "instance-b"\n[node name="Leaf" type="Node3D" parent="B/InheritedParent"]\nmetadata/wa_node_id = "shared-leaf"\n';
+  const parsed=parseNativeText(text);assert.ok(parsed);assert.ok(parsed.byKey.has('node/[["instance-a"],"shared-leaf"]'));assert.ok(parsed.byKey.has('node/[["instance-b"],"shared-leaf"]'));
+});
+
 test('different native properties merge without serializing unknown source or flattening inheritance',t=>{
   const {archive,manifest}=archiveFixture(t),base=manifest({'scene.tscn':scene,'unknown.bin':Buffer.from([0,255,2])});
   const source=manifest({'scene.tscn':scene.replace('position = Vector3(1, 2, 3)','position = Vector3(-1, 2, 3)'),'unknown.bin':Buffer.from([0,255,2])});
@@ -60,6 +65,11 @@ test('disjoint text changes preserve CRLF and inserted lines; conflicts are boun
   const {archive,manifest}=archiveFixture(t),text='first\r\nsecond\r\nthird\r\nfourth\r\n',base=manifest({'code.gd':text}),source=manifest({'code.gd':text.replace('first','FIRST')}),target=manifest({'code.gd':text.replace('fourth','FOURTH')});
   const result=mergeNativeFiles({base,source,target,archive});assert.equal(result.unresolved.length,0);assert.equal(resultText(archive,result,'code.gd'),'FIRST\r\nsecond\r\nthird\r\nFOURTH\r\n');
   const conflict=mergeNativeFiles({base,source,target:manifest({'code.gd':text.replace('first','another')}),archive});assert.equal(conflict.unresolved.length,1);assert.equal(conflict.unresolved[0].line_start,1);
+});
+
+test('text files added on both sides allow one explicit combined result while binary extensions stay opaque',t=>{
+  const {archive,manifest}=archiveFixture(t),base={},source=manifest({'new.gd':'source code\n','opaque.bin':'ascii source'}),target=manifest({'new.gd':'target code\n','opaque.bin':'ascii target'}),plan=mergeNativeFiles({base,source,target,archive}),text=plan.conflicts.find(item=>item.path==='new.gd'),binary=plan.conflicts.find(item=>item.path==='opaque.bin');
+  assert.ok(text.choices.includes('manual'));assert.ok(!binary.choices.includes('manual'));const result=mergeNativeFiles({base,source,target,archive,resolutions:{[text.key]:{choice:'manual',text:'combined code\n'},[binary.key]:'target'}});assert.equal(result.unresolved.length,0);assert.equal(resultText(archive,result,'new.gd'),'combined code\n');assert.equal(result.files['opaque.bin'].hash,target['opaque.bin'].hash);
 });
 
 test('text hunk reconstruction is exact for repeated lines, insertions, deletions and deterministic random edits',()=>{

@@ -5,6 +5,7 @@ import {nativeFileMap,nativeSourceIdentity} from './native-source.mjs';
 export const NATIVE_MERGE_ALGORITHM='native-source-merge-2';
 const TEXT_LIMIT=2*1024*1024,VALUE_PREVIEW=16000,PARSE_CACHE_LIMIT=128,PARSE_CACHE_BYTES=16*1024*1024;
 const parsedCache=new Map();let parsedCacheBytes=0;
+const binaryPath=path=>/\.(?:bin|scn|res|glb|png|jpe?g|webp|gif|bmp|tiff?|psd|blend|fbx|ttf|otf|woff2?|wav|ogg|mp3|flac|mp4|webm|pck|zip|wasm|dll|so|dylib)$/i.test(path);
 const equal=(a,b)=>stable(a)===stable(b);
 const digest=value=>hash(value);
 const own=(value,key)=>Object.hasOwn(value,key);
@@ -30,10 +31,11 @@ export function nativeMergeBases(store,leftHeads,rightHeads){
   return common.filter(id=>!nonBest.has(id)).sort();
 }
 
-function conflictContext({resolutions={},prefix='',conflicts=[],used=new Set()}={}){
+function conflictContext({resolutions={},prefix='',conflicts=[],used=new Set(),onConflict}={}){
   return {resolutions,prefix,conflicts,used,choose(local,base,source,target,details={},manual=true){
     const fingerprint=digest({algorithm:NATIVE_MERGE_ALGORITHM,local,base,source,target});
     const key=(prefix?prefix+'/':'')+local+'@'+fingerprint.slice(0,24),provided=own(resolutions,key),decision=resolutions[key];
+    onConflict?.({key,fingerprint,base,source,target,...details});
     let choice=typeof decision==='string'?decision:decision?.choice;
     const item={key,fingerprint,...details,base:preview(base),source:preview(source),target:preview(target),choices:['source','target','base',...(manual?['manual']:[])],resolved:false};
     if(provided){
@@ -160,8 +162,8 @@ export function parseNativeText(text){
     for(const section of sections){
       const kind=section.header.kind;
       if(kind==='node'){
-        const chain=[],seen=new Set();let cursor=section;
-        while(cursor){if(seen.has(cursor))return null;seen.add(cursor);if(cursor.instanceId)chain.unshift(cursor.instanceId);const p=literal(attr(cursor,'parent'));cursor=p===null?null:nodePaths.get(p);}
+        const parts=section.nodePath==='.'?[]:section.nodePath.split('/');if(parts.some(part=>!part||part==='..'||part==='.' ))return null;
+        const prefixes=['.',...parts.map((_part,index)=>parts.slice(0,index+1).join('/'))],chain=prefixes.map(path=>nodePaths.get(path)?.instanceId).filter(Boolean);
         section.key=section.instanceId?'mount/'+JSON.stringify(chain):section.nodeId?'node/'+JSON.stringify([chain,section.nodeId]):'node-path/'+section.nodePath;
       }else if(kind==='ext_resource'||kind==='sub_resource')section.key=kind+'/'+(literal(attr(section,'id'))??attr(section,'id')??section.header.raw.trim());
       else if(['gd_scene','gd_resource','resource'].includes(kind))section.key=kind;
@@ -233,18 +235,23 @@ function mergeNativeStructured(baseText,sourceText,targetText,{context,local,pat
 
 /** The same pure three-way source operation powers branch merges and offline
  * replay. Only content-addressed blobs are read/written; no public head moves. */
-export function mergeNativeFiles({base,source,target,archive,resolutions={},prefix='',allowManual=true}){
+export function mergeNativeFiles({base,source,target,archive,resolutions={},prefix='',onConflict}){
   [base,source,target]=[base,source,target].map(files=>nativeFileMap(files));
-  const files=Object.assign(Object.create(null),target),changes=[],conflicts=[],used=new Set(),context=conflictContext({resolutions,prefix,conflicts,used});
+  const files=Object.assign(Object.create(null),target),changes=[],conflicts=[],used=new Set(),context=conflictContext({resolutions,prefix,conflicts,used,onConflict});
   const statistics={files_considered:0,hash_fast_paths:0,text_merges:0,native_merges:0,binary_conflicts:0,bytes_read:0};
   for(const path of [...new Set([...Object.keys(base),...Object.keys(source),...Object.keys(target)])].sort()){
     const b=base[path]??null,s=source[path]??null,t=target[path]??null;if(equal(s,b))continue;statistics.files_considered++;
     let result,method='hash';const start=conflicts.length,local='file/'+path;
     if(equal(t,b)||equal(s,t)){result=s;statistics.hash_fast_paths++;}
-    else if(!b||!s||!t){method='file-conflict';result=context.choose(local,b,s,t,{kind:!s||!t?'delete_modify':'add_add',path},false);}
+    else if(!b||!s||!t){
+      method='file-conflict';const kind=!s||!t?'delete_modify':'add_add';
+      const textValues=!binaryPath(path)?[b,s,t].map(entry=>{if(!entry)return null;const bytes=archive.read(entry);statistics.bytes_read+=bytes.length;return utf8(bytes);}):null;
+      if(textValues&&[b,s,t].every((entry,index)=>!entry||textValues[index]!==null)){const value=context.choose(local,...textValues,{kind,path},true);result=value===null?null:archive.put(Buffer.from(value,'utf8'));}
+      else result=context.choose(local,b,s,t,{kind,path},false);
+    }
     else{
       const bytes=[b,s,t].map(entry=>archive.read(entry));statistics.bytes_read+=bytes.reduce((sum,bytes)=>sum+bytes.length,0);const texts=bytes.map(utf8);
-      if(texts.some(text=>text===null)){method='binary-conflict';statistics.binary_conflicts++;result=context.choose(local,b,s,t,{kind:'binary',path},false);}
+      if(binaryPath(path)||texts.some(text=>text===null)){method='binary-conflict';statistics.binary_conflicts++;result=context.choose(local,b,s,t,{kind:'binary',path},false);}
       else{
         let text;const nativeText=/\.(tscn|tres)$/i.test(path);if(nativeText)text=mergeNativeStructured(...texts,{context,local,path});
         if(text!==null&&text!==undefined){method='native';statistics.native_merges++;}

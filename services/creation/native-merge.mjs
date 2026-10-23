@@ -63,11 +63,11 @@ export class NativeMerges{
     const files=nativeFileMap(source_files);this.native.archive.verify(files);
     return this.newPlan(user,p,b,{kind:'workspace',external:{base_revision,source_files:files,source_identity:nativeSourceIdentity(files),workspace_id,request_id}});
   }
-  compute(plan,resolutions={}){
+  compute(plan,resolutions={},options={}){
     const p=plan.project_id,target=this.revision(p,plan.target_revision),original=sourceFiles(target.manifest);let files=original;
     const steps=[],changes=[],conflicts=[],used=new Set(),statistics={files_considered:0,hash_fast_paths:0,text_merges:0,native_merges:0,binary_conflicts:0,bytes_read:0};
     const execute=(base,source,label,info)=>{
-      const result=mergeNativeFiles({base,source,target:files,archive:this.native.archive,resolutions,prefix:label});
+      const result=mergeNativeFiles({base,source,target:files,archive:this.native.archive,resolutions,prefix:label,onConflict:options.onConflict});
       steps.push({...info,target_source_identity:nativeSourceIdentity(files),result_source_identity:result.source_identity,conflict_keys:result.conflicts.map(item=>item.key)});files=result.files;
       changes.push(...result.changes.map(change=>({...change,step:label})));conflicts.push(...result.conflicts);for(const key of result.used_resolutions)used.add(key);for(const key of Object.keys(statistics))statistics[key]+=result.statistics[key];
     };
