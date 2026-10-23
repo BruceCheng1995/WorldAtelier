@@ -22,6 +22,8 @@ import { designKnowledgeIndex, SEMANTIC_AUTHORING_GUIDE } from './semantic-conte
 import {nativeWorldApiGuide,nativeSemanticAuthoringGuide,readNativeAgentSource,commitNativeWorkspaceApply,nativeTargetsForOperations} from './native-agent-workspace.mjs';
 import {nativeObjectViews,nativeAddressKey} from './native-view.mjs';
 import {propertyActionTools,propertyActionContext,exposeActionProperties} from './authoring-actions.mjs';
+import {PLAY_CONTEXT_TOOLS,dispatchPlayContextTool} from './session-continuations.mjs';
+import {BRANCH_MERGE_TOOLS,BRANCH_MERGE_READ_TOOLS,BRANCH_MERGE_TOOL_NAMES,dispatchBranchMergeTool} from './native-merge-agent.mjs';
 
 const creatorWorldApiGuide=manifest=>nativeWorldApiGuide(manifest)||worldApiGuide(manifest);
 const creatorTargetKey=target=>{
@@ -33,6 +35,8 @@ const terminal=new Set(['completed','interrupted','failed']);
 const tool=(name,description,properties={},required=[])=>({type:'function',name,description,inputSchema:{type:'object',properties,required,additionalProperties:false}});
 const string={type:'string'};
 export const CREATION_TOOLS=[
+  ...PLAY_CONTEXT_TOOLS,
+  ...BRANCH_MERGE_TOOLS,
   tool('asset_catalog','Discover asset market filter values, labels, sort options and search syntax. Use before searching unfamiliar asset categories.',{}),
   tool('asset_search','Search free official and developer assets with Chinese/English aliases and combined filters. For an unspecified controllable human protagonist, filter publisher=official, role=humanoid, capability=controllable,animated. Returns compact metadata and fixed IDs/versions. Use asset_detail for actual animation names and usage.',{q:string,dimension:string,category:string,publisher:string,role:string,genre:string,style:string,license:string,capability:string,sort:{type:'string',enum:['relevance','newest','updated','name','size','animations']},offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:60}}),
   tool('asset_detail','Read a fixed market asset description, capabilities, license, preview references and file manifest. No binary payloads.',{asset_id:string,version:string},['asset_id']),
@@ -547,7 +551,7 @@ export class CreationAgentRuns {
   async dynamic(request) {
     if(!this.runForTurn(request.threadId,request.turnId)&&this.turnBindings.has(request.scope.sessionId))await this.turnBindings.get(request.scope.sessionId);
     const {session,user,run}=this.assertRun(request),args=request.arguments??{},p=session.project_id,b=session.branch_id;
-    if(run.execution_mode==='plan'&&!['world_read','world_hierarchy_preview','knowledge_search','knowledge_read','semantic_read','authoring_context','asset_catalog','asset_search','asset_detail'].includes(request.tool))fail(403,'当前为规划模式，只允许读取游戏资料；开始实施后才能修改或构建。');
+    if(run.execution_mode==='plan'&&!['world_read','world_hierarchy_preview','knowledge_search','knowledge_read','semantic_read','authoring_context','asset_catalog','asset_search','asset_detail',...PLAY_CONTEXT_TOOLS.map(tool=>tool.name),...BRANCH_MERGE_READ_TOOLS].includes(request.tool))fail(403,'当前为规划模式，只允许读取游戏资料；开始实施后才能修改或构建。');
     const receiptId=`${run.id}:${request.callId}`,old=this.store.get('creator_tool_receipt',receiptId);
     if(old){
       // Old receipts may predate the wire budget; replay their result, never effects.
@@ -559,7 +563,10 @@ export class CreationAgentRuns {
       assertAgentSourceOperations(args.ops,{sourceFiles:branch.manifest.source_files,readOriginal:entry=>this.service.native.archive.read(entry)});
     }
     let value;
-    if(request.tool==='authoring_context')value=propertyActionContext(this.service,session,run,args);
+    const observed=await dispatchPlayContextTool(this.service,{session,user,run,tool:request.tool,args,cwd:request.cwd,signal:request.signal});
+    if(observed.handled){this.assertRun(request);value=observed.value;}
+    else if(BRANCH_MERGE_TOOL_NAMES.has(request.tool))value=await dispatchBranchMergeTool({service:this.service,user,session,run,tool:request.tool,args,guard:()=>this.assertRun(request),signal:request.signal});
+    else if(request.tool==='authoring_context')value=propertyActionContext(this.service,session,run,args);
     else if(request.tool==='properties_expose'){
       value=await exposeActionProperties(this.service,user,session,run,args);
       if(value.revision){const latest=this.store.get('creator_run',run.id);if(!latest.changes.includes(value.revision))latest.changes.push(value.revision);this.store.put('creator_run',latest);this.publicState(p,b);}

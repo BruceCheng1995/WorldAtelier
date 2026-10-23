@@ -5,13 +5,13 @@ import {NativeSharedPlay,prepareNativeSharedPlay} from '../../apps/creation-work
 function bridge(t){
  const previous=Object.getOwnPropertyDescriptor(globalThis,'location');Object.defineProperty(globalThis,'location',{configurable:true,value:{origin:'http://localhost:48921'}});t.after(()=>previous?Object.defineProperty(globalThis,'location',previous):delete globalThis.location);
  const preview=Object.create(NativeSharedPlay.prototype),seen=[],sent=[],errors=[];
- Object.assign(preview,{disposed:false,frame:{contentWindow:{}},nonce:'iframe',seq:1,commandSeq:1,job:{source_revision:'source',runtime_source_hash:'runtime'},runtimeBuildId:'build',host:{dataset:{}},status:{},sceneContext:{document_id:'p/main/scene'},worldContext:{world_id:'world',epoch:2,scene_revision:'source',resource_id:'scene',scene_generation:4,control_generation:'controller'},onEvent:p=>seen.push(p),post:p=>sent.push(p),fail:e=>errors.push(e)});
- const emit=(data,changes={})=>preview.receive({origin:location.origin,source:preview.frame.contentWindow,data:{source:'world-atelier-game',nonce:'iframe',canonical_identity:'build',...data},...changes});return{preview,seen,sent,errors,emit};
+ Object.assign(preview,{disposed:false,runtimeOrigin:'http://[::ffff:7f00:1]:48921',frame:{contentWindow:{}},nonce:'iframe',seq:1,commandSeq:1,job:{source_revision:'source',runtime_source_hash:'runtime'},runtimeBuildId:'build',host:{dataset:{}},status:{},sceneContext:{document_id:'p/main/scene'},worldContext:{world_id:'world',epoch:2,scene_revision:'source',resource_id:'scene',scene_generation:4,control_generation:'controller'},onEvent:p=>seen.push(p),post:p=>sent.push(p),fail:e=>errors.push(e)});
+ const emit=(data,changes={})=>preview.receive({origin:preview.runtimeOrigin,source:preview.frame.contentWindow,data:{source:'world-atelier-game',nonce:'iframe',canonical_identity:'build',...data},...changes});return{preview,seen,sent,errors,emit};
 }
 test('only exact real-engine ready envelope reaches the host baseline barrier',t=>{
  const f=bridge(t),packet={...f.preview.worldContext,type:'shared_ready',sequence:12,state_hash:'actual-snapshot',source_identity:'source-hash'};
  for(const field of ['world_id','epoch','scene_revision','resource_id','scene_generation','control_generation'])f.emit({...packet,[field]:'stale'});
- f.emit(packet,{origin:'http://wrong'});f.emit(packet,{source:{}});f.emit({...packet,nonce:'previous-iframe'});assert.equal(f.seen.length,0);
+ f.emit(packet,{origin:location.origin});f.emit(packet,{origin:'http://wrong'});f.emit(packet,{source:{}});f.emit({...packet,nonce:'previous-iframe'});assert.equal(f.seen.length,0);
  f.emit(packet);assert.equal(f.seen.length,1);assert.equal(f.seen[0].type,'shared_ready');assert.equal(f.seen[0].state_hash,'actual-snapshot');assert.equal(f.preview.loadedSeq,1);
  f.emit({type:'native_shared',packet:{...packet,type:undefined,action:'applied',control_generation:undefined}});assert.equal(f.seen.length,1,'periodic projection ACK is not a join ACK');
 });

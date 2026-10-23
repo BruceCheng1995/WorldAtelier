@@ -62,7 +62,8 @@ export async function adaptSingleThreadLocalHttp({ javascript, html, wasm, prese
 \t\t// Keep the actual isSecureContext result and every unrelated engine check.
 \t\tconst location = window.location;
 \t\tconst host = location.hostname.toLowerCase();
-\t\tconst octets = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host) ? host.split('.').map(Number) : [];
+\t\tconst mapped = /^\\[::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})\\]$/.exec(host);
+\t\tconst octets = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host) ? host.split('.').map(Number) : mapped ? [parseInt(mapped[1],16) >>> 8, parseInt(mapped[1],16) & 255, parseInt(mapped[2],16) >>> 8, parseInt(mapped[2],16) & 255] : [];
 \t\tconst localIPv4 = octets.length === 4 && octets.every(value => value <= 255) && (
 \t\t\toctets[0] === 10 || octets[0] === 127 ||
 \t\t\t(octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
@@ -93,7 +94,7 @@ const engine = new Engine(GODOT_CONFIG);`).replace('<script src="index.js"></scr
     source_commit: '89cea143987d564363e15d207438530651d943ac', upstream_features_sha256: FEATURES_SHA256,
     original_javascript_sha256: digest(javascript), adapted_javascript_sha256: digest(adapted),
     original_html_sha256: digest(html), adapted_html_sha256: digest(adaptedHtml),
-    single_threaded: true, wasm_memory: memories, local_http_hosts: ['RFC1918 IPv4', 'IPv4 loopback', 'IPv4 link-local', 'localhost', '*.local'],
+    single_threaded: true, wasm_memory: memories, ipv4_mapped_ipv6: true, local_http_hosts: ['RFC1918 IPv4', 'IPv4 loopback', 'IPv4 link-local', 'IPv4-mapped IPv6 (private/loopback/link-local only)', 'localhost', '*.local'],
     retained_checks: ['WebGL2', 'Fetch streaming', 'WebAssembly', 'Secure Context outside local HTTP', 'Cross-Origin Isolation and SharedArrayBuffer when threads requested'],
     secure_context_only_features: ['microphone access', 'async clipboard', 'AudioWorklet', 'service workers'],
     local_http_audio: 'Dummy (silent) when AudioWorklet is unavailable; secure HTTPS audio configuration is unchanged',

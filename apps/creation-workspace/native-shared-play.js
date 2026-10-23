@@ -1,4 +1,5 @@
 import {GamePlay} from './game-play.js';
+import {validateRuntimeAccess} from './runtime-access.js';
 
 const cancelled=()=>Object.assign(Error('共享世界准备已停止'),{name:'AbortError'});
 
@@ -13,9 +14,8 @@ export async function prepareNativeSharedPlay({request,projectId,branchId,resour
   onProgress(job);
   const access=await request(`builds/${encodeURIComponent(job.id)}/access`,{method:'POST',body:{},signal});
   if(signal?.aborted)throw cancelled();
-  const url=new URL(access.web_url,location.origin);
-  if(url.origin!==location.origin||url.pathname!==`/creation-releases/${job.id}/web/index.html`)throw Error('共享客户端不属于当前服务');
-  return {job,url:url.href,playable};
+  const url=validateRuntimeAccess(access,job.id);
+  return {job,url:url.href,playable,access};
 }
 
 export class NativeSharedPlay extends GamePlay {
@@ -31,7 +31,7 @@ export class NativeSharedPlay extends GamePlay {
     if(!job||job.purpose!=='native_shared'||job.status!=='completed')return super.diagnostic(code,message,{unscoped:true,...(extra.recovered?{recovered:true}:{})});
     return super.diagnostic(code,message,{unscoped:true,shared_build_id:job.id,project_id:job.project_id,branch_id:job.branch_id,revision:job.source_revision,resource_id:job.entry_scene_id,runtime_build_id:job.canonical_identity,...(extra.recovered?{recovered:true}:{})});
   }
-  validEnvelope(event){return !this.disposed&&event.origin===location.origin&&event.source===this.frame.contentWindow&&event.data?.source==='world-atelier-game'&&event.data.nonce===this.nonce;}
+  validEnvelope(event){return !this.disposed&&event.origin===this.runtimeOrigin&&event.source===this.frame.contentWindow&&event.data?.source==='world-atelier-game'&&event.data.nonce===this.nonce;}
   receive(event){
     if(!this.validEnvelope(event))return;
     const message=event.data;

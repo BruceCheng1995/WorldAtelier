@@ -31,6 +31,13 @@ import {NativeMerges} from './native-merge.mjs';
 import {NativeGameReleases} from './native-game-releases.mjs';
 import {prefabTestList,createPrefabTest} from './prefab-tests.mjs';
 import {AssetMarket} from './asset-market.mjs';
+import {RuntimeAccess} from './runtime-access.mjs';
+import {workspaceNetwork} from '../preview/network.mjs';
+import {PlayObservations} from './play-observations.mjs';
+import {SessionContinuations} from './session-continuations.mjs';
+import {NativeClients} from './native-clients.mjs';
+import {NativeOffline} from './native-offline.mjs';
+import {createBranchMergeDraft} from './native-merge-agent.mjs';
 
 async function readBody(req,max=512*1024,raw=false) {
   const chunks=[];let size=0;for await(const part of req){size+=part.length;if(size>max)fail(413,'请求内容过大');chunks.push(part);}
@@ -40,7 +47,8 @@ async function readBody(req,max=512*1024,raw=false) {
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));}
 
 export class CreationService {
-  constructor({server,root,data,origin,runtimeBuild,publicPlay=false,requestOrigin=null,workspaceUrls=()=>[]}) {
+  constructor({server,root,data,origin,runtimeBuild,publicPlay=false,requestOrigin=null,workspaceUrls=()=>[],network=null}) {
+    network??=workspaceNetwork(Number(new URL(origin).port||80));requestOrigin??=network.requestOrigin;
     this.requestOrigin=requestOrigin;this.root=root;this.data=data;this.origin=origin;this.runtimeBuild=runtimeBuild??resolve(root,'.local/model-preview/build');
     this.hierarchyEditing=process.env.WORLD_ATELIER_ENABLE_HIERARCHY==='1';
     this.store=new CreationStore(resolve(data,'creation.sqlite'));this.store.publicPlay=publicPlay;
@@ -57,15 +65,20 @@ export class CreationService {
       return readFileSync(resolve(this.assets.directory,`${digest}.${extension}`));
     }})});
     this.nativeMerges=new NativeMerges({store:this.store,native:this.native});
+    this.nativeOffline=new NativeOffline({service:this});
     this.market=new AssetMarket({service:this});this.market.loadOfficial();
     this.projectMedia=new ProjectMedia({store:this.store,data});
     this.sessionImages=new SessionImages({store:this.store,data});
     this.environments=new CreationEnvironments({service:this});
     this.builds=new CreationBuilds({service:this});
+    this.runtimeAccess=new RuntimeAccess({service:this,network});
+    this.observations=new PlayObservations({service:this});
+    this.continuations=new SessionContinuations({service:this});
     this.gameReleases=new NativeGameReleases({service:this});
     this.realtime=new CreationRealtime({server,store:this.store,requestOrigin,onWorld:(client,message)=>this.worlds?.message(client,message)});
     this.agent=process.env.WORLD_ATELIER_DISABLE_AGENT==='1'?null:new CreationAgentRuns({service:this,codexPath:process.env.CODEX_BIN});
     this.worlds=process.env.WORLD_ATELIER_DISABLE_WORLDS==='1'?null:new CreationWorlds({service:this,server,godotPath:process.env.GODOT_BIN});this.authAttempts=new Map();
+    this.nativeClients=new NativeClients({service:this,server});
     this.semantic=new SemanticAuthoring({store:this.store,commit:(user,p,b,input,origin)=>this.committed(user,p,b,input,origin)});
     this.inbox=new CreationInbox({store:this.store,onChanged:change=>this.inboxChanged(change)});
     this.notices=new CreationNotifications({service:this});
@@ -131,6 +144,7 @@ export class CreationService {
     if(!run.deliveries.some(d=>(typeof d==='string'?d:d.id)===delivery.id)){run.deliveries.push(delivery.id);this.store.put('creator_run',run);this.sessionEvent(run.session_id,{kind:'delivery_finished',run_id:run.id,delivery_id:delivery.id});this.agent?.publicState(run.project_id,run.branch_id);}
   }
   async request(req,res) {
+    if(this.runtimeAccess.network.runtimeRequestOrigin(req))return this.runtimeAccess.request(req,res);
     const url=new URL(req.url,this.origin),path=url.pathname;
     if(!path.startsWith('/creation-api/'))return false;
     let authenticatedUser=null,errorScope={};
@@ -151,13 +165,17 @@ export class CreationService {
         fail(404,'市场接口不存在');
       }
       if(area==='admin'){json(res,200,await this.admin.request(req,res,parts,body));return true;}
-      if(area==='health'&&req.method==='GET'){json(res,200,{ok:true,service:'creation',registration_open:true,public_play:this.store.publicPlay===true,collaboration_access:true,schema:NATIVE_SCHEMA,supported_schemas:[NATIVE_SCHEMA,'creation-flat-1',HIERARCHY_SCHEMA],native_authoring:true,ai_property_actions:1,native_editor:true,native_control_layout:true,native_shared_worlds:Boolean(this.worlds?.native),automatic_covers:true,manual_covers:true,project_management:true,annotation_context_version:4,viewport_annotations:2,agent_environment_version:1,agent_asset_files:true,creator_skills:['game-assets'],chat_settings:true,chat_access:true,chat_questions:true,export_builds:true,agent_goals:true,ai_limits_version:1,market_admin_version:1,automatic_verification:false,inbox:true,semantic_authoring:true,hierarchy_editing:this.hierarchyEditing,agent_ready:Boolean(this.agent),agent_auto_resume:Boolean(this.agent?.autoResume),worlds_ready:Boolean(this.worlds)});return true;}
+      if(area==='health'&&req.method==='GET'){json(res,200,{ok:true,service:'creation',registration_open:true,public_play:this.store.publicPlay===true,collaboration_access:true,schema:NATIVE_SCHEMA,supported_schemas:[NATIVE_SCHEMA,'creation-flat-1',HIERARCHY_SCHEMA],native_authoring:true,native_fine_merge:1,play_context:1,session_continuations:1,runtime_isolation:'wa-runtime-origin-1',native_clients:1,native_offline:1,ai_property_actions:1,native_editor:true,native_control_layout:true,native_shared_worlds:Boolean(this.worlds?.native),automatic_covers:true,manual_covers:true,project_management:true,annotation_context_version:4,viewport_annotations:2,agent_environment_version:1,agent_asset_files:true,creator_skills:['game-assets'],chat_settings:true,chat_access:true,chat_questions:true,export_builds:true,agent_goals:true,ai_limits_version:1,market_admin_version:1,automatic_verification:false,inbox:true,semantic_authoring:true,hierarchy_editing:this.hierarchyEditing,agent_ready:Boolean(this.agent),agent_auto_resume:Boolean(this.agent?.autoResume),worlds_ready:Boolean(this.worlds)});return true;}
       if(area==='auth'&&req.method==='POST'&&['register','login'].includes(p)){
         const address=req.socket.remoteAddress,attempts=this.authAttempts.get(address)?.filter(t=>t>Date.now()-60000)??[];
         if(attempts.length>60)fail(429,'登录尝试过于频繁，请稍后再试');attempts.push(Date.now());this.authAttempts.set(address,attempts);
         const result=p==='register'?this.store.register(await body()):this.store.login(await body());json(res,p==='register'?201:200,result);return true;
       }
       const user=this.auth(req);authenticatedUser=user;if(area==='projects'&&action==='branches'&&p&&b)errorScope={project_id:p,branch_id:b};
+      if(area==='native-workspaces')return this.nativeOffline.request(user,req,res,url);
+      if(await this.nativeClients.request(user,req,res,url))return true;
+      if(await this.observations.request(req,res,user,parts,max=>readBody(req,max)))return true;
+      if(await this.continuations.request(req,res,user,parts,max=>readBody(req,max)))return true;
       if(area==='auth'&&p==='profile'&&!action&&req.method==='PATCH'){
         const result=this.store.updateProfile(user,await body());
         this.observe(()=>this.realtime.userUpdated(result.user));json(res,200,result);return true;
@@ -172,7 +190,7 @@ export class CreationService {
       if(area==='builds'&&p){
         if(!action&&req.method==='GET'){json(res,200,{job:this.builds.view(this.builds.forUser(user,p))});return true;}
         if(action==='artifacts'&&b&&['GET','HEAD'].includes(req.method)){this.builds.download(user,p,b,req,res);return true;}
-        if(action==='access'&&req.method==='POST'){json(res,200,this.builds.access(user,p,res));return true;}
+        if(action==='access'&&req.method==='POST'){json(res,200,this.builds.access(user,p,res,req));return true;}
       }
       if(area==='bootstrap'&&req.method==='GET'){json(res,200,this.store.bootstrap(user));return true;}
       if(area==='auth'&&p==='logout'&&req.method==='POST'){const token=String(req.headers.authorization).slice(7);const {hash}=await import('./schema.mjs');this.store.remove('creator_login',hash(token));json(res,200,{ok:true});return true;}
@@ -226,7 +244,21 @@ export class CreationService {
           if(b&&!operation&&req.method==='GET'){json(res,200,this.store.branchView(user,p,b));return true;}
           if(operation==='transactions'&&req.method==='POST'){json(res,200,await this.committed(user,p,b,await body()));return true;}
           if(operation==='native-source'&&req.method==='GET'){json(res,200,this.native.source(user,p,b,Object.fromEntries(url.searchParams)));return true;}
-          if(operation==='merge-preview'&&req.method==='POST'){const input=await body(),target=this.store.branchFor(user,p,b,true),source=this.store.branchFor(user,p,input.source_branch_id);const native=[target,source].some(branch=>this.store.get('creator_revision',branch.head).manifest.schema===NATIVE_SCHEMA);json(res,200,native?this.nativeMerges.preview(user,p,b,input):this.store.mergePreview(user,p,b,input));return true;}
+          if(operation==='merge-preview'&&req.method==='POST'){
+            const input=await body(),target=this.store.branchFor(user,p,b,true),sources=input.source_branch_ids??[input.source_branch_id];
+            if(!Array.isArray(sources)||!sources.length||sources.length>16)fail(400,'请选择有效的来源分支');
+            const sourceBranches=sources.map(source=>this.store.branchFor(user,p,source));
+            const native=[target,...sourceBranches].some(branch=>this.store.get('creator_revision',branch.head).manifest.schema===NATIVE_SCHEMA);
+            if(!native&&sources.length!==1)fail(422,'历史源格式仅支持逐个分支合并');
+            json(res,200,native?this.nativeMerges.preview(user,p,b,input):this.store.mergePreview(user,p,b,{...input,source_branch_id:sources[0]}));return true;
+          }
+          if(operation==='merge-review'&&req.method==='POST'){json(res,200,this.nativeMerges.review(user,p,b,await body()));return true;}
+          if(operation==='merge-revert-preview'&&req.method==='POST'){json(res,200,this.nativeMerges.revertPreview(user,p,b,await body()));return true;}
+          if(operation==='merge-history'&&req.method==='GET'){
+            const target=this.store.branchFor(user,p,b,true),rows=this.store.list('creator_revision').filter(revision=>revision.project_id===p&&revision.origin?.native_merge&&this.store.ancestor(revision.id,target.head));
+            const items=rows.filter(revision=>this.store.get('creator_merge_preview',revision.origin.merge_preview_id)?.target_branch_id===b).sort((a,b)=>b.created_at-a.created_at).slice(0,40).map(revision=>({revision:revision.id,created_at:revision.created_at,parents:revision.parents,revert_of:revision.origin.revert_of??null,sources:this.store.get('creator_merge_preview',revision.origin.merge_preview_id)?.sources?.map(source=>source.branch_id)??[]}));
+            json(res,200,{target_revision:target.head,items});return true;
+          }
           if(operation==='merge'&&req.method==='POST'){const input=await body(),target=this.store.branchFor(user,p,b,true),native=this.store.get('creator_revision',target.head).manifest.schema===NATIVE_SCHEMA||this.store.get('creator_merge_preview',input.preview_id)?.schema===NATIVE_SCHEMA;if(!native)this.assertHierarchyEditing(user,p,b);const result=await(native?this.nativeMerges.merge(user,p,b,input):this.store.merge(user,p,b,input));if(!result.replayed){this.realtime.committed(p,b,result);this.agent?.publicState(p,b);}json(res,200,result);return true;}
           if(operation==='resolved-scene'&&req.method==='GET'){
             const branch=this.store.branchFor(user,p,b),revision=url.searchParams.get('revision');
@@ -266,6 +298,7 @@ export class CreationService {
       }
       if(area==='invites'&&p==='join'&&req.method==='POST'){json(res,200,this.collaboration.join(user,await body()));return true;}
       if(area==='sessions'&&p) {
+        if(action==='merge-context'&&req.method==='POST'){const result=createBranchMergeDraft(this,user,p,await body());json(res,200,{...result,session:this.store.sessionView(user,p)});return true;}
         if(!action&&req.method==='GET'){json(res,200,this.store.sessionView(user,p));return true;}
         if(!action&&req.method==='PATCH'){const input=await body(),session=this.store.sessionFor(user,p,true);if(input.model!==undefined&&input.model!==session.model&&input.effort===undefined)input.effort=null;const effort=input.effort===undefined?session.effort:input.effort;if((input.model!==undefined||input.effort!==undefined)&&effort!=null){if(!this.agent)fail(503,'Codex 执行器尚未就绪');await this.agent.validateSettings(input.model??session.model,effort);}json(res,200,this.store.updateSession(user,p,input));return true;}
         if(action==='annotation-imports'&&req.method==='POST'){const session=this.store.sessionFor(user,p,true),input=await body();if(input.project_id!==session.project_id||input.branch_id!==session.branch_id)fail(409,'只能粘贴到同一项目和分支的会话');json(res,200,createAnnotationDraft(this.store,user,session.project_id,session.branch_id,input,{sessionId:p}));return true;}
@@ -300,9 +333,9 @@ export class CreationService {
     if(this.closePromise)return this.closePromise;
     // Synchronous marker first: terminal Ctrl-C and socket closes must not be
     // persisted as content failures while waiting for a slower Agent shutdown.
-    this.closing=true;this.admin?.close();this.worlds?.beginClose();this.realtime.close();
+    this.closing=true;this.observations?.close();this.admin?.close();this.worlds?.beginClose();this.realtime.close();
     const nativeClosing=this.native?.close();
-    this.closePromise=(async()=>{await this.validator?.close();await Promise.all([nativeClosing,this.worlds?.close(),this.agent?.close(),this.builds?.close(),this.environments?.close()]);this.store.close();})();
+    this.closePromise=(async()=>{await this.validator?.close();await this.nativeClients?.close();await this.nativeOffline?.close();await Promise.all([nativeClosing,this.worlds?.close(),this.agent?.close(),this.builds?.close(),this.environments?.close()]);this.store.close();})();
     return this.closePromise;
   }
 }

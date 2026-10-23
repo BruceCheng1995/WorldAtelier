@@ -1,5 +1,6 @@
 import { randomUUID, bindDialogDismiss } from './client-platform.js';
 import { prepareGamePlay } from './game-play.js';
+import {openRuntimePlaceholder,navigateStandaloneRuntime} from './runtime-access.js';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const terminal = new Set(['completed', 'partial', 'failed', 'interrupted']);
 const webCompatibilityPolicy = 'world-atelier-single-thread-local-http-v1';
@@ -295,9 +296,8 @@ export class ReleaseBuilds {
     if (globalThis.isSecureContext === false && location.protocol === 'http:' && !compatibleWeb(job)) {
       this.clientErrors.set(jobId, canBuild(this.context) ? '此旧 Web 包不支持局域网 HTTP。请从预览窗口点击“新页面游玩”，自动生成兼容版本。' : '此旧 Web 包不支持局域网 HTTP。请选择新版 Web 包，或请游戏编辑者生成兼容版本。'); this.render(); return;
     }
-    const popup = window.open('about:blank', '_blank');
+    const popup = openRuntimePlaceholder('正在打开 Web 出包版本');
     if (!popup) { this.clientErrors.set(jobId, '浏览器拦截了新页面，请允许此站点打开弹出式窗口后重试。'); this.render(); return; }
-    popup.opener = null; popup.document.title = '正在打开 Web 出包版本';
     popup.document.body.textContent = '正在核对这个出包版本的访问权限…';
     const generation = this.generation; this.opening.add(artifactId); this.clientErrors.delete(jobId); this.render();
     try {
@@ -309,9 +309,7 @@ export class ReleaseBuilds {
   async navigateWeb(popup, jobId, generation) {
     const result = await this.request(`builds/${encodeURIComponent(jobId)}/access`, {method:'POST', body:{}});
     if (!this.current(generation) || popup.closed) { popup.close(); return; }
-    const url = new URL(result.web_url, location.origin);
-    if (!result.web_url || url.origin !== location.origin || !url.pathname.startsWith(`/creation-releases/${encodeURIComponent(jobId)}/web/`)) throw new Error('Web 版本地址与当前后台不一致');
-    popup.location.replace(url.href);
+    const opened=await navigateStandaloneRuntime(popup,result,{current:()=>this.current(generation)});if(!opened&&!popup.closed)popup.close();
   }
 
   cancelWebPreview() {
@@ -326,10 +324,9 @@ export class ReleaseBuilds {
     const scene = context.resources?.find(resource => resource.id === entrySceneId && resource.kind === 'scene' && resource.purpose !== 'prefab_test');
     if (!scene) return;
     if (this.webPreview && !this.webPreview.popup.closed) { this.open('history', trigger); return; }
-    const popup = window.open('about:blank', '_blank');
+    const popup = openRuntimePlaceholder(`${scene.name} · 正在准备 Web 游玩`);
     this.open('history', trigger);
     if (!popup) { this.error = '浏览器拦截了新页面，请允许此站点打开弹出式窗口后重试。'; this.renderTopbar(); this.render(); return; }
-    popup.opener = null; popup.document.title = `${scene.name} · 正在准备 Web 游玩`;
     const preview = this.webPreview = {popup, context, entrySceneId, generation:this.generation, requestId:randomUUID(), jobId:null, opening:true, controller:new AbortController()};
     popup.document.body.textContent = '正在准备固定的 Godot 游戏工程…';
     const alive = () => this.current(preview.generation) && this.webPreview === preview && !popup.closed;
@@ -349,7 +346,7 @@ export class ReleaseBuilds {
         this.renderTopbar(); this.render(); this.schedule();
       }});
       if (!alive()) return;
-      popup.location.replace(result.url); this.webPreview = null;
+      const opened=await navigateStandaloneRuntime(popup,result.access,{current:alive});if(!opened&&!popup.closed)popup.close();this.webPreview = null;
     } catch (error) {
       if (!alive()) return;
       this.cancelWebPreview(); this.error = errorMessage(error); this.renderTopbar(); this.render();

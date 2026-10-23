@@ -1,5 +1,9 @@
 import { randomUUID } from './client-platform.js';
 import { GodotPreview } from './preview-bridge.js';
+import {validateRuntimeAccess} from './runtime-access.js';
+
+const runtimeMessages=new Set(['ready','loaded','world_state','camera','selected','error','runtime_error','prefab_test_state','prefab_test_result','play_context','captured_frame']);
+const runtimeCommands=new Set(['start','select','camera','world','native_shared','prefab_test','capture_frame','context_request']);
 
 const terminal = new Set(['completed', 'partial', 'failed', 'interrupted']);
 const stopped = () => Object.assign(new Error('本次试玩已停止'), {name:'AbortError'});
@@ -35,9 +39,8 @@ export async function prepareGamePlay({request, projectId, branchId, revision, e
   if (!job.artifacts?.some(artifact => artifact.target === 'web')) throw Error(job.error?.message || job.error || 'Godot Web 构建未完成，请查看出包记录');
   const access = await request(`builds/${encodeURIComponent(jobId)}/access`, {method:'POST', body:{}, signal});
   if (signal?.aborted) throw stopped();
-  const url = new URL(access.web_url, location.origin);
-  if (!access.web_url || url.origin !== location.origin || url.pathname !== `/creation-releases/${jobId}/web/index.html`) throw Error('运行工程地址与当前后台不一致');
-  return {job, url:url.href};
+  const url = validateRuntimeAccess(access,jobId);
+  return {job, url:url.href,access};
 }
 
 /** A real exported game, with an optional inspection bridge.
@@ -48,6 +51,7 @@ export class GamePlay {
     this.controller = new AbortController();
     this.frame = document.createElement('iframe');
     this.frame.title = 'Godot 独立游戏'; this.frame.allow = 'fullscreen; autoplay'; this.frame.setAttribute('aria-label', this.frame.title);
+    this.frame.referrerPolicy='no-referrer';this.frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-pointer-lock');this.captures=new Map();
     this.status = document.createElement('div'); this.status.className = 'render-status'; this.status.setAttribute('role', 'status');
     this.status.textContent = '正在准备游戏工程…'; host.append(this.frame, this.status);
     this.listener = event => this.receive(event); window.addEventListener('message', this.listener);
@@ -62,6 +66,7 @@ export class GamePlay {
       }});
       if (this.disposed) throw stopped();
       this.job = result.job; this.runtimeBuildId = result.job.canonical_identity;
+      const checked=validateRuntimeAccess(result.access,result.job.id);this.runtimeOrigin=checked.origin;this.nonce=result.access.launch_nonce;this.runtimeAccess=result.access;
       this.host.dataset.runtimeBuild = this.runtimeBuildId;
       this.host.dataset.runtimeKind = 'game';
       this.host.dataset.gameBuild = result.job.id;
@@ -73,10 +78,21 @@ export class GamePlay {
       throw error;
     }
   }
-  post(payload) { if (!this.disposed) this.frame.contentWindow.postMessage({source:'world-atelier-workspace', nonce:this.nonce, ...payload}, location.origin); }
+  post(payload) { if (!this.disposed&&this.runtimeOrigin&&runtimeCommands.has(payload?.type)) this.frame.contentWindow.postMessage({...payload,source:'world-atelier-workspace',nonce:this.nonce},this.runtimeOrigin); }
   receive(event) {
     const message = event.data;
-    if (this.disposed || event.origin !== location.origin || event.source !== this.frame.contentWindow || message?.source !== 'world-atelier-game' || message.nonce !== this.nonce) return;
+    if (this.disposed || event.origin !== this.runtimeOrigin || event.source !== this.frame.contentWindow || message?.source !== 'world-atelier-game' || message.nonce !== this.nonce||!runtimeMessages.has(message.type)) return;
+    // Read-only replies never advance the host's running scene identity.
+    if(message.type==='captured_frame'){
+      const capture=this.captures.get(message.request_id);if(!capture)return;
+      this.captures.delete(message.request_id);clearTimeout(capture.timer);
+      if(message.error||message.canonical_identity!==this.runtimeBuildId||message.seq!==this.commandSeq||capture.seq!==this.seq||capture.generation!==this.sceneGeneration||message.document_id!==capture.context.document_id||message.scene_generation!==capture.generation||message.source_revision!==capture.context.source_revision||typeof message.data_url!=='string'||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(message.data_url)||message.data_url.length>12*1024*1024){capture.reject(Error(message.error||'截图目标已变化或画面无效'));return;}
+      capture.resolve({...message,runtime_build_id:this.runtimeBuildId});return;
+    }
+    if(message.type==='play_context'){
+      if(message.canonical_identity!==this.runtimeBuildId||message.source_revision!==this.job?.source_revision||message.scene_generation!==this.sceneGeneration||message.seq!==undefined&&message.seq!==this.commandSeq)return;
+      this.onEvent({...message,seq:this.seq});return;
+    }
     if (message.canonical_identity && message.canonical_identity !== this.runtimeBuildId) { this.fail('实际运行工程与固定构建身份不匹配'); return; }
     if (message.type === 'ready') {
       if (!message.capabilities?.includes('canonical-game-runtime')) { this.fail('运行工程不支持当前工作台，请重新构建'); return; }
@@ -134,7 +150,15 @@ export class GamePlay {
     this.post({...identity,...structuredClone(packet),type:'world',seq:this.commandSeq,scene_generation:this.sceneGeneration});
   }
   editor() {} presence() {} development() {} transient() { return false; }
-  captureFrame() { return GodotPreview.prototype.captureFrame.call(this); }
+  captureFrame() {
+    if(!this.ready||this.pending||this.loadedSeq!==this.seq||this.disposed||!this.sceneContext)return Promise.reject(Error('等待当前游戏画面'));
+    const request_id=randomUUID(),context=this.sceneContext,seq=this.seq,generation=this.sceneGeneration;
+    return new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{this.captures.delete(request_id);reject(Error('截图超时，请重试'));},5000);
+      this.captures.set(request_id,{resolve,reject,timer,context,seq,generation});
+      this.post({type:'capture_frame',request_id,seq:this.commandSeq,document_id:context.document_id,scene_generation:generation});
+    });
+  }
   diagnostic(...args) { return GodotPreview.prototype.diagnostic.apply(this,args); }
   fail(message) {
     if (this.disposed) return;
@@ -146,6 +170,7 @@ export class GamePlay {
     this.disposed = true; this.controller.abort();
     if (this.pending) { clearTimeout(this.pending.timer); this.pending.reject(stopped()); this.pending = null; }
     this.worldContext = null; window.removeEventListener('message',this.listener);
+    for(const capture of this.captures.values()){clearTimeout(capture.timer);capture.reject(stopped());}this.captures.clear();
     this.frame.src = 'about:blank'; this.frame.remove(); this.status.remove();
   }
 }

@@ -239,7 +239,7 @@ export class CreationWorlds {
   broadcast(world,packet) {
     for(const client of world.clients.values()) {
       if(client.world_scope!==client.scope||client.world_key!==world.key){this.leave(client);continue;}
-      try{this.store.authenticate(client.token);this.store.projectFor(client.user,world.project_id);this.service.realtime.send(client,{type:'world',packet:{world_id:world.id,epoch:world.epoch,scene_revision:world.revision,...packet}});}catch{client.ws.close(1008,'Authorization changed');}
+      try{if(client.native_ticket_id)this.service.nativeClients.authenticate(client);else this.store.authenticate(client.token);this.store.projectFor(client.user,world.project_id);this.service.realtime.send(client,{type:'world',packet:{world_id:world.id,epoch:world.epoch,scene_revision:world.revision,...packet}});}catch{client.ws.close(1008,'Authorization changed');}
     }
   }
   async publish(user,p,b,input={}) {
@@ -331,7 +331,7 @@ export class CreationWorlds {
     }
     fail(400,'未知世界命令');
   }
-  async leave(client){const world=this.worlds.get(client.world_key);if(world?.clients.delete(client.id))this.tell(world,{type:'leave',player_id:client.user.id});client.world_active=false;client.control_generation=null;client.world_barrier=null;client.world_key=null;client.world_scope=null;client.zeroInputs?.clear();client.inspection=null;}
+  async leave(client){const world=this.worlds.get(client.world_key),held=this.service.nativeClients?.holdPlayerOnLeave(client,world);if(world?.clients.delete(client.id)&&!held)this.tell(world,{type:'leave',player_id:client.user.id});client.world_active=false;client.control_generation=null;client.world_barrier=null;client.world_key=null;client.world_scope=null;client.zeroInputs?.clear();client.inspection=null;}
   attachInspection(user,sid,input) {
     const session=this.store.sessionFor(user,sid,true),inspection=this.store.get('creator_inspection',input.inspection_id);
     if(!inspection||inspection.owner_user_id!==user.id||inspection.project_id!==session.project_id||inspection.branch_id!==session.branch_id)fail(403,'检查记录不属于此会话与开发者');

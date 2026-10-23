@@ -1,4 +1,5 @@
 import {NATIVE_SCHEMA,nativeFileMap,nativeSourceIdentity} from '../services/creation/native-source.mjs';
+import {nativeWorkspaceRetention} from './native-workspace-retention.mjs';
 
 /** Every persisted revision is a retention root, including unreachable history.
  * Migration records stay in the SQLite snapshot; restoration never runs code. */
@@ -22,6 +23,8 @@ export function nativeSourceRetention(rows){
     if(!from||!to||record.id!==to.id||from.project_id!==record.project_id||to.project_id!==record.project_id||to.manifest.schema!==NATIVE_SCHEMA||!to.parents?.includes(from.id))throw Error('Native migration revision closure is invalid');
     return{id:record.id,project_id:record.project_id,branch_id:record.branch_id,from_revision:from.id,to_revision:to.id};
   }).sort((a,b)=>a.id.localeCompare(b.id));
-  if(!revisions.length&&!migrations.length)return null;
-  return{policy:'all_persisted_native_source_file_objects_v1',revisions:revisions.sort((a,b)=>a.revision_id.localeCompare(b.revision_id)),migrations,objects:[...objects.values()].sort((a,b)=>a.path.localeCompare(b.path))};
+  const offline=nativeWorkspaceRetention(rows);
+  for(const file of offline?.objects??[]){const old=objects.get(file.path);if(old&&old.bytes!==file.bytes)throw Error('Offline workspace object size differs from native source');objects.set(file.path,file);}
+  if(!revisions.length&&!migrations.length&&!offline)return null;
+  return{policy:'all_persisted_native_source_file_objects_v1',revisions:revisions.sort((a,b)=>a.revision_id.localeCompare(b.revision_id)),migrations,...(offline?{offline_workspaces:offline}:{}),objects:[...objects.values()].sort((a,b)=>a.path.localeCompare(b.path))};
 }

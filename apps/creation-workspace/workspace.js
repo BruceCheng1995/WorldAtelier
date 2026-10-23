@@ -9,6 +9,10 @@ import {mountAssetMarket} from './asset-market.js';
 import { GameCatalog, catalogRoute, catalogHref, suggestBranchId } from './game-catalog.js';
 import { GodotPreview, PlayControls, PrefabDragPlacement, PrefabThumbnails, prefabThumbnailKey } from './preview-bridge.js';
 import { GamePlay, prepareGamePlay } from './game-play.js';
+import {PlayContextController} from './play-context.js';
+import {openSessionContinuation} from './session-continuation.js';
+import {createNativeMergePanel} from './native-merge-panel.js';
+import {createNativeOfflinePanel} from './native-offline-panel.js';
 import {mountPrefabLab} from './prefab-lab.js';
 import { CreationClient, SceneRevisionCache, WorldModeSequence, validWorldInput, validSessionPacket, previewPeers, userColor, withDevelopmentMetadata, aggregateDevelopment, LocalSelectionOrder, DEFAULT_DISPLAY, displayKey, normalizeDisplay, readDisplay } from './collaboration-client.js';
 import { HierarchyPrefabPanel } from './hierarchy-prefabs.js';
@@ -312,6 +316,8 @@ let prefabReturnTarget=null;
 let prefabLab=null,prefabLabSubject=null;
 let referenceEditor=null,referenceInteractions=null;
 let viewportAnnotations=null;
+let playContext=null;
+let nativeMergePanel=null,nativeOfflinePanel=null;
 let semanticComposer=null,semanticInspector=null,semanticInspectorRoot=null,semanticInspectorGeneration=0,semanticComposerPending=false,semanticPreparingDraft=false;
 let prefabPlacement=null;
 let semanticSelection={key:null,ids:[],primary:null,anchor:null};
@@ -425,6 +431,8 @@ function renderTopbar(){
     }
   }
   renderTopbarAgents();
+  $('#nativeWorkspace').disabled=!branch||!isNative()||!canWrite();
+  $('#nativeMergeHistory').disabled=!branch||!isNative()||!canWrite();
 }
 function filterTopbarBranches(){
   const query=$('#topbarBranchSearch')?.value.trim().toLocaleLowerCase()??'',list=$('#topbarBranches');
@@ -843,7 +851,7 @@ function acceptBranch(next,{refreshInspector=true}={}){
   }
 }
 function renderHeader(){renderTopbar();if(!branch)return;$('#branchTitle').textContent=project.name;$('#branchCode').textContent=branch.branch_id;$('#sourceBadge').textContent=short(branch.head);$('#sourceBadge').title=branch.head;$('#sessionBranch').textContent=branch.branch_id;$('#sourceStatus').textContent=!canWrite()?'只读浏览 · 点击 Play 试玩':mode==='edit'?'中央源稿':'源稿与运行世界分离';}
-function renderAll(){renderHeader();renderExplorer();renderStage();renderInspector();renderSessions();renderComposer();}
+function renderAll(){renderHeader();renderExplorer();renderStage();renderInspector();renderSessions();renderComposer();playContext?.update();}
 function selectedSemanticObjects(){
   const scope=viewedDocumentKey(),objects=mode==='edit'?docObjects():mode==='inspect'?frozenScene?.objects??[]:displayedPlayScene()?.objects??[];
   const valid=new Set(objects.map(o=>o.id));
@@ -2011,6 +2019,7 @@ function renderComposer(){
   $('#copyViewportAnnotations').hidden=!(s?.draft_attachments??[]).some(a=>a.kind==='viewport_annotation');
   $('#sessionId').value=s?.id===selectedSessionId?s.id:'';$('#copySessionId').disabled=!$('#sessionId').value;
   $('#sessionVisibility').value=s?.visibility??'shared';$('#sessionVisibility').disabled=!own;
+  $('#continueSession').disabled=!own||!s||Boolean(pendingSubmission());
   renderAgentStatus();renderConversation();renderQuestions();renderPendingSubmission();
   const draft=s?(draftCache.get(s.id)??s.draft??''):'';
   if(!referenceEditor?.focused()||$('#sessionDraft').dataset.session!==s?.id)$('#sessionDraft').value=draft;
@@ -2027,14 +2036,16 @@ function renderComposer(){
   $('#draftStatus').textContent=cleanupLabel()||(attachmentWrites.has(s?.id)?'正在保存附件…':settingsWrites.has(s?.id)?'正在保存设置…':busy?'可以先写下一条想法':own?'草稿自动保存':'共享会话 · 只读');
   $('#toggleSessions').setAttribute('aria-expanded',String(!$('#chatSessions').hidden));
   resizeDraft();updateSendButton();referenceEditor?.refresh();referenceInteractions?.refresh();semanticComposer?.refresh();hydrateImageAttachments();
+  playContext?.update();
 }
 async function removeDraftAttachment(sid,attachmentId,button){
   if(attachmentWrites.has(sid))return;
   button.disabled=true;
   const generation=sessionLoadGeneration,scope=branchKey();
+  const priorAttachments=sid===selectedSessionId?[...(sessionData?.draft_attachments??[])]:[];
   const write=api.api(`${sessionRoute(sid)}/attachments/${encodeURIComponent(attachmentId)}`,{method:'DELETE'});
   attachmentWrites.set(sid,write);renderComposer();
-  try{const updated=await write;if(sid===selectedSessionId&&sessionData?.id===sid&&generation===sessionLoadGeneration&&scope===branchKey()){sessionData.draft_attachments=updated.draft_attachments;const field=$('#sessionDraft');field.value=field.value.split(referenceToken(attachmentId)).join('');field.dispatchEvent(new Event('input',{bubbles:true}));renderComposer();$('#sessionDraft').focus();}toast('已从草稿移除批注。');}
+  try{const updated=await write;if(sid===selectedSessionId&&sessionData?.id===sid&&generation===sessionLoadGeneration&&scope===branchKey()){sessionData.draft_attachments=updated.draft_attachments;const field=$('#sessionDraft');for(const removed of priorAttachments.filter(a=>!updated.draft_attachments.some(current=>current.id===a.id)))field.value=field.value.split(referenceToken(removed.id)).join('');field.dispatchEvent(new Event('input',{bubbles:true}));renderComposer();$('#sessionDraft').focus();}toast('已从草稿移除批注。');}
   finally{if(attachmentWrites.get(sid)===write)attachmentWrites.delete(sid);if(sid===selectedSessionId)renderComposer();if(button.isConnected)button.disabled=false;}
 }
 async function saveSessionSettings(patch){
@@ -2065,7 +2076,7 @@ function sameSubmissionScope(submission){const scope=submissionScope();return sc
 function receiveSubmission(submission,result){
   sessionStorage.removeItem(`creator-pending-turn:${submission.scope.user_id}:${submission.scope.session_id}`);pendingTurnSubmissions.delete(submission.scope.session_id);
   const draft=draftCache.get(submission.scope.session_id);if(draft===undefined||draft.trim()===submission.body.text.trim())draftCache.delete(submission.scope.session_id);
-  if(sameSubmissionScope(submission)){sessionData=reconcileSessionTitle(result.session,sessionTitleConfirmations.get(result.session.id));$('#sessionDraft').value=draftCache.get(submission.scope.session_id)??result.session.draft??'';renderComposer();}
+  if(sameSubmissionScope(submission)){sessionData=reconcileSessionTitle(result.session,sessionTitleConfirmations.get(result.session.id));$('#sessionDraft').value=draftCache.get(submission.scope.session_id)??result.session.draft??'';playContext?.sent({session_id:submission.scope.session_id});renderComposer();}
 }
 async function transmitSubmission(submission){
   if(!sameSubmissionScope(submission))throw new Error('会话已经切换，未发送旧会话请求');
@@ -2085,6 +2096,9 @@ async function performSendDraft(){
   if(unresolvedComposerReferences($('#sessionDraft').value).length)await prepareSemanticDraftForSend();
   if(selectedSessionId!==initialSession||sessionLoadGeneration!==initialGeneration)return;
   const settingsSession=selectedSessionId;if(sessionTitleWrites.has(settingsSession))await sessionTitleWrites.get(settingsSession);if(settingsWrites.has(settingsSession))await settingsWrites.get(settingsSession);if(attachmentWrites.has(settingsSession))await attachmentWrites.get(settingsSession);if(settingsSession!==selectedSessionId)return;
+  if(!ownSession(sessionData)||runBusy())return;
+  await playContext?.beforeSend();
+  if(selectedSessionId!==initialSession||sessionLoadGeneration!==initialGeneration)return;
   if(!ownSession(sessionData)||runBusy())return;const scope=copy(submissionScope()),sid=scope.session_id,model=sessionData.model??agentStatus.default_model,text=$('#sessionDraft').value.trim();if(!text&&!sessionData.draft_attachments?.some(a=>a.kind==='image')){toast('先输入创作需求或添加图片。');return;}
   const submission={scope,body:{text,client_user_message_id:uuid(),model},sending:false};
   submission.body.effort=sessionData.effort??null;submission.body.access_mode=sessionData.access_mode??'workspace-write';
@@ -2272,6 +2286,9 @@ async function joinSharedWorld(fixed=null,{transfer=false}={}){
 }
 async function receiveNativeWorld(packet){
   if(packet.action==='join'){
+    if(packet.control_restore&&world?.native_shared&&world.world_id===packet.world_id&&mainPreview?.nativeShared){
+      joinRequest={generation:++joinGeneration,documentId:key(),session_kind:'shared_world',native_shared:true};modePending=true;inputEnabled=false;
+    }
     const request=joinRequest,preview=mainPreview;
     if(!request?.native_shared||request.generation!==joinGeneration||request.documentId!==key()||!preview?.nativeShared)return;
     if(packet.scene?.document_id!==`${project.id}/${branch.branch_id}/${packet.resource_id}`||packet.manifest?.resource_id!==resourceId||packet.scene_revision!==preview.job.source_revision||packet.manifest.runtime_build_id!==preview.runtimeBuildId){suspendWorld('共享基线与已加载客户端不匹配');return;}
@@ -2282,6 +2299,10 @@ async function receiveNativeWorld(packet){
     catch(error){if(mainPreview===preview)suspendWorld(`共享场景加载失败：${errorText(error)}`);}return;
   }
   if(!world?.native_shared||packet.world_id!==world.world_id)return;
+  if(packet.action==='control_pending'){
+    inputEnabled=false;modePending=true;clearTimeout(modeTimer);mainPreview.world({action:'disconnect',world_id:world.world_id,epoch:world.epoch,scene_revision:world.scene_revision});$('#workspaceStatus').textContent='另一客户端正在接续此角色，等待实际基线确认…';renderStage();return;
+  }
+  if(packet.action==='control_transferred'){suspendWorld('角色已在另一客户端继续，当前源稿和创作会话保留');return;}
   if(packet.action==='transfer'){
     if(packet.manifest?.resource_id!==resourceId||packet.epoch<world.epoch)return;
     inputEnabled=false;pendingSharedTransfer=packet.manifest;
@@ -2470,6 +2491,7 @@ function trackLocalScene(message){
 }
 const modeLong={edit:'editing',play:'playing',inspect:'inspecting'},modeShort={editing:'edit',playing:'play',inspecting:'inspect'};
 function leaveWorld(){
+  playContext?.reset();
   closePrefabLab(false);
   invalidateMainCamera();
   playControls?.setEnabled(false);
@@ -2606,6 +2628,7 @@ function measureLegacyControlViews(message){
 }
 async function onPreviewEvent(message){
   if(!branch)return;
+  if(mainPreview instanceof GamePlay)playContext?.accept(message);
   if(message.type==='runtime_error'&&mainPreview instanceof GamePlay){suspendWorld(`游戏运行失败：${message.message}`);return;}
   if(message.type==='shared_ready'){
     if(world?.native_shared&&mainPreview?.nativeShared&&message.world_id===world.world_id&&message.epoch===world.epoch&&message.control_generation===world.control_generation)api.send({...message,type:'world_ready'});return;
@@ -3152,12 +3175,75 @@ $('#chatDrawer').addEventListener('paste',event=>{
 window.addEventListener('keydown',event=>{if(event.key==='Escape'&&viewportAnnotations.active&&!document.querySelector('dialog[open]')&&!event.defaultPrevented&&!event.target.closest('input,textarea,[contenteditable=true]')){event.preventDefault();event.stopImmediatePropagation();viewportAnnotations.escape();}},true);
 
 initializeSemanticAuthoring();
+function assertBranchOperation(scope){
+  if(!branch||!canWrite()||!isNative()||project?.id!==scope.projectId||branch.branch_id!==scope.branchId)throw Error('游戏、分支或编辑权限已变化');
+  if(branch.head!==(scope.base??scope.revision))throw Error('当前源版本已变化，请重新打开操作并比较');
+  if(drag||localEdit||localCommitPending)throw Error('请先完成当前对象编辑，再处理分支操作');
+}
+async function discussNativeMerge({scope,preview,resolutions}){
+  assertBranchOperation(scope);const uid=user.id;
+  if(!ownSession(sessionData)||runBusy()){
+    await flushDraft();assertBranchOperation(scope);
+    const created=await api.api(`${branchRoute(scope.projectId,scope.branchId)}/sessions`,{method:'POST',body:{title:'讨论分支合并',visibility:'private',model:agentStatus?.default_model??null}});
+    if(user?.id!==uid||project?.id!==scope.projectId||branch?.branch_id!==scope.branchId)return;
+    sessions.push(created);await selectSession(created.id);
+  }
+  const sid=selectedSessionId;
+  const result=await api.api(`sessions/${encodeURIComponent(sid)}/merge-context`,{method:'POST',body:{request_id:uuid(),preview_id:preview.id,resolutions,note:'请解释这份固定合并计划的冲突与影响，并根据我的后续要求处理。'}});
+  if(user?.id!==uid||selectedSessionId!==sid||project?.id!==scope.projectId||branch?.branch_id!==scope.branchId)return;
+  sessionData=result.session;
+  if(!$('#sessionDraft').value.trim()){draftCache.set(sid,'请解释这些合并冲突，给出保留双方成果的处理建议。');$('#sessionDraft').value=draftCache.get(sid);await flushDraft();}
+  closeModal();renderComposer();openChat(true);toast('固定合并上下文已加入草稿，发送后由 Agent 继续');
+}
+async function openNativeClient(scope){
+  assertBranchOperation(scope);const scenes=Object.values(branch.manifest.resources).filter(resource=>resource.kind==='scene'&&resource.purpose!=='prefab_test');
+  if(!scenes.length)throw Error('当前游戏没有可接续的场景');
+  const active=modal('本机接续共享世界',`<p>使用同一固定原生显示工程和真实服务器进度。新客户端实际加载并确认基线后才接管；创作登录凭据保留在启动工具中。</p><label>共享世界场景<select id="nativeClientScene">${scenes.map(scene=>`<option value="${esc(scene.id)}" ${scene.id===scope.resourceId?'selected':''}>${esc(scene.name)}</option>`).join('')}</select></label><p>此入口面向有编辑权限的协作者，需要本机匹配的 Godot 4.6。先在“共享世界”中明确发布要接续的场景。</p>`,[{label:'关闭',action:closeModal},{label:'准备连接说明',primary:true,action:async()=>{
+    if(!active())return;assertBranchOperation(scope);const resource=$('#nativeClientScene').value;
+    const fixed=await api.api(`${branchRoute(scope.projectId,scope.branchId)}/shared-playable?resource_id=${encodeURIComponent(resource)}`);if(!active())return;
+    const quote=value=>"'"+String(value).replaceAll("'","'\\''")+"'";
+    const command=`node world-atelier-native-client.mjs connect --server=${quote(location.origin)} --project=${quote(scope.projectId)} --branch=${quote(scope.branchId)} --scene=${quote(resource)} --dir='./WorldAtelier-client' --login=${quote(user.name)}`;
+    modal('接续已发布的共享世界',`<p>固定源 ${esc(short(fixed.source_revision))} · 共享世界 ${esc(short(fixed.world_id))}</p><p>下载工具后，在本机终端执行并按提示登录：</p><pre>${esc(command)}</pre><p>需要 Node.js 24 或更新版本，以及与固定工程匹配的 Godot。仅下载缺少的文件；下载中目标改变会要求重新解析。成功接管前保留原控制端，接管后旧输入失效。</p><p>共享世界更新时启动器准备匹配的新实例再接续；这不会把离线存档写回在线世界。</p>`,[{label:'关闭',action:closeModal},{label:'下载客户端工具',primary:true,action:async()=>{
+      const result=await api.download('native-clients/client.mjs'),url=URL.createObjectURL(result.blob),link=document.createElement('a');link.href=url;link.download='world-atelier-native-client.mjs';link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);toast('客户端工具已下载');
+    }}],{size:'wide'});
+  }}]);
+}
+nativeMergePanel=createNativeMergePanel({request:(route,options)=>api.api(route.replace(/^\//,''),options),modal,close:closeModal,assertCurrent:assertBranchOperation,applyBranch:acceptBranch,notify:toast,onDiscuss:discussNativeMerge});
+nativeOfflinePanel=createNativeOfflinePanel({request:(route,options)=>api.api(route.replace(/^\//,''),options),download:route=>api.download(route.replace(/^\//,'')),modal,close:closeModal,assertCurrent:assertBranchOperation,notify:toast,onNativeClient:openNativeClient});
+$('#nativeWorkspace').onclick=()=>{closeTopbarMenu(false);if(branch&&isNative()&&canWrite())nativeOfflinePanel.open(context()).catch(report);};
+$('#nativeMergeHistory').onclick=async()=>{
+  closeTopbarMenu(false);if(!branch||!isNative()||!canWrite())return;const ctx=context();
+  try{const result=await api.api(`${branchRoute(ctx.projectId,ctx.branchId)}/merge-history`);assertBranchOperation(ctx);
+    if(!result.items.length){toast('当前分支尚无本轮原生合并记录');return;}
+    const active=modal('合并与同步历史',`<p>选择一次提交，比较保留后续修改的补偿撤回。不会倒退分支，也不影响当前游戏进度。</p><label>最近的提交<select id="nativeRevertRevision">${result.items.map(item=>`<option value="${esc(item.revision)}">${esc(short(item.revision))} · ${esc(item.revert_of?'补偿撤回':item.sources.join(' + ')||'原生同步')}</option>`).join('')}</select></label>`,[{label:'关闭',action:closeModal},{label:'比较补偿撤回',primary:true,action:()=>{if(active())return nativeMergePanel.revert(ctx,$('#nativeRevertRevision').value);}}]);
+  }catch(error){report(error);}
+};
+playContext=new PlayContextController({
+  composer:$('.composer-input'),viewport:$('#viewport'),request:(route,options)=>api.api(route,options),preview:()=>mainPreview instanceof GamePlay?mainPreview:null,
+  getContext:()=>({user_id:user?.id,project_id:project?.id,branch_id:branch?.branch_id,session_id:selectedSessionId,session_generation:sessionLoadGeneration,can_write:canWrite()&&ownSession(sessionData),mode,mode_pending:modePending,session:sessionData}),
+  requestInspect:()=>setMode('inspect'),
+  onSession:updated=>{if(updated.id===selectedSessionId&&updated.owner_user_id===user?.id&&updated.project_id===project?.id&&updated.branch_id===branch?.branch_id){sessionData=updated;renderComposer();}},onError:report
+});
+window.addEventListener('pagehide',()=>playContext?.dispose());
+$('#continueSession').onclick=async()=>{
+  if(!ownSession(sessionData)||!canWrite())return;
+  const original=sessionData,owner=user.id,pid=project.id;
+  try{
+    await flushDraft();const latest=await api.api('bootstrap');
+    if(user?.id!==owner||project?.id!==pid||sessionData?.id!==original.id)return;
+    const current=latest.projects.find(item=>item.id===pid);if(!current)throw Error('当前游戏权限已变化');project.branches=current.branches;
+    $('#chatSettings').open=false;
+    openSessionContinuation({session:original,branches:current.branches,request:(route,options)=>api.api(route,options),getContext:()=>({user_id:user?.id,project_id:project?.id}),
+      onCreated:async result=>{if(user?.id!==owner||project?.id!==pid)return;await enterBranch(result.session.branch_id);await selectSession(result.session.id);openChat(true);toast('已创建新的私有会话，历史仍固定在来源分支');},onError:report});
+  }catch(error){report(error);}
+};
 renderTopbar();
 
 if(api.token){try{await bootstrap();}catch(error){$('#authError').textContent=errorText(error);$('#authView').hidden=false;$('#landing').hidden=true;}}else{$('#authView').hidden=false;$('#landing').hidden=true;}
 
 function mergeBranch(){
   if(!branch||!canWrite())return;const ctx=context(),sources=project.branches.filter(b=>b.branch_id!==ctx.branchId);
+  if(isNative())return nativeMergePanel.open(ctx,sources);
   if(!sources.length){toast('先创建另一个分支再比较。');return;}
   const active=modal('比较其他分支到当前分支',`<p>目标 ${esc(ctx.branchId)} / ${esc(short(ctx.base))}。先取得真实差异，再选择每处冲突。</p><label>来源分支<select id="mergeSource">${sources.map(b=>`<option value="${esc(b.branch_id)}">${esc(b.name)} · ${esc(b.branch_id)}</option>`).join('')}</select></label>`,[{label:'取消',action:closeModal},{label:'读取差异',primary:true,action:async()=>{
     if(!active())return;assertCurrentEdit(ctx);const source=$('#mergeSource').value;

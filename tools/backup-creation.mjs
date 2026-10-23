@@ -89,12 +89,22 @@ function sourceAssets(manifest) {
 function sessionImageFiles(rows){
   const files=new Map();
   for(const row of rows){
-    const attachments=row.kind==='creator_session'?row.value.draft_attachments:row.kind==='creator_message'?row.value.attachments:[];
+    const attachments=row.kind==='creator_session'?row.value.draft_attachments:['creator_message','creator_continuation_message'].includes(row.kind)?row.value.attachments:[];
     for(const a of attachments??[])if(a.kind==='image'){
       insist(HEX.test(a.sha256)&&Number.isSafeInteger(a.bytes)&&a.bytes>0&&a.bytes<=5*1024*1024&&['image/png','image/jpeg','image/webp'].includes(a.mime),'Invalid session image attachment');
       const previous=files.get(a.sha256);insist(!previous||previous.bytes===a.bytes,'Session image metadata differs');
       files.set(a.sha256,{path:`data/session-images/${a.sha256}`,sha256:a.sha256,bytes:a.bytes});
     }
+  }
+  return [...files.values()];
+}
+
+function playObservationFiles(rows){
+  const files=new Map();
+  for(const row of rows)if(row.kind==='creator_play_observation')for(const frame of row.value.frames??[]){
+    insist(HEX.test(frame.sha256)&&Number.isSafeInteger(frame.bytes)&&frame.bytes>0&&frame.bytes<=2*1024*1024&&['image/png','image/jpeg','image/webp'].includes(frame.mime),'Invalid play observation image');
+    const prior=files.get(frame.sha256);insist(!prior||prior.bytes===frame.bytes,'Play observation image metadata differs');
+    files.set(frame.sha256,{path:`data/play-observations/${frame.sha256}`,sha256:frame.sha256,bytes:frame.bytes});
   }
   return [...files.values()];
 }
@@ -234,6 +244,7 @@ export async function createCreationBackup({data, out, evidenceRoot, automaticEv
     const dbFd = openSync(dbPath, constants.O_RDONLY); try {fsyncSync(dbFd);} finally {closeSync(dbFd);}
     for (const a of assets) add(resolve(data, 'assets'), `${a.id}.${a.ext}`, `data/assets/${a.id}.${a.ext}`, {sha256: a.id, bytes: a.bytes});
     for(const file of sessionImageFiles(rows))add(data,file.path.slice(5),file.path,file);
+    for(const file of playObservationFiles(rows))add(data,file.path.slice(5),file.path,file);
     for(const file of retention.native_source?.objects??[])add(data,file.path,'data/'+file.path,file);
     for(const file of retention.asset_market?.objects??[])add(data,file.path,'data/'+file.path,file);
     const copiedEvidence = new Set();
@@ -270,7 +281,7 @@ function backupManifest(from) {
   const seen = new Set();
   for (const f of manifest.files) {
     relativePath(f.path);
-    insist(/^(data\/creation\.sqlite|data\/assets\/[a-f0-9]{64}\.(glb|gd)|data\/(native-source|market)\/objects\/[a-f0-9]{2}\/[a-f0-9]{64}|data\/(review-evidence|automatic-evidence|session-images)\/[a-f0-9]{64}|runtimes\/[a-f0-9]{64}\/.+|data\/(builds|environments)\/[a-z]+-[a-f0-9-]+\/.+|data\/automatic-checks\/[A-Za-z0-9._-]+\/runtime\/.+|retention\.json)$/.test(f.path) && !seen.has(f.path) && HEX.test(f.sha256) && Number.isSafeInteger(f.bytes) && f.bytes >= 0, 'Invalid backup file inventory');
+    insist(/^(data\/creation\.sqlite|data\/assets\/[a-f0-9]{64}\.(glb|gd)|data\/(native-source|market)\/objects\/[a-f0-9]{2}\/[a-f0-9]{64}|data\/(review-evidence|automatic-evidence|session-images|play-observations)\/[a-f0-9]{64}|runtimes\/[a-f0-9]{64}\/.+|data\/(builds|environments)\/[a-z]+-[a-f0-9-]+\/.+|data\/automatic-checks\/[A-Za-z0-9._-]+\/runtime\/.+|retention\.json)$/.test(f.path) && !seen.has(f.path) && HEX.test(f.sha256) && Number.isSafeInteger(f.bytes) && f.bytes >= 0, 'Invalid backup file inventory');
     const native=/^data\/native-source\/objects\/([a-f0-9]{2})\/([a-f0-9]{64})$/.exec(f.path);
     if(native)insist(native[1]===native[2].slice(0,2)&&f.sha256===native[2],'Native source archive path identity mismatch');
     const market=/^data\/market\/objects\/([a-f0-9]{2})\/([a-f0-9]{64})$/.exec(f.path);
@@ -291,6 +302,7 @@ function verifyClosure(root,manifest) {
   };
   for (const artifact of assets) requireEntry(`data/assets/${artifact.id}.${artifact.ext}`,{sha256:artifact.id,bytes:artifact.bytes});
   for(const file of sessionImageFiles(snapshotRows(resolve(root,'data/creation.sqlite'))))requireEntry(file.path,file);
+  for(const file of playObservationFiles(snapshotRows(resolve(root,'data/creation.sqlite'))))requireEntry(file.path,file);
   for(const file of retention.native_source?.objects??[])requireEntry('data/'+file.path,file);
   for(const file of retention.asset_market?.objects??[])requireEntry('data/'+file.path,file);
   for (const artifact of artifacts) requireEntry(`data/review-evidence/${artifact.storage_key}`,{sha256:artifact.sha256,bytes:artifact.byte_length});

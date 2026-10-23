@@ -13,6 +13,7 @@
 
 | 入口 | 内容 |
 | --- | --- |
+| [2026-10-23 本轮决策与讨论](docs/CREATION-NEXT-WAVE-2026-10-23.md) | Agent 试玩/交互/聚焦上下文、运行隔离、合并与离线往返；快速 Play 后置，托管以后讨论，多平台搁置 |
 | [产品目标与进度](docs/PRODUCT-EXPERIENCE.md) / [用户体验 Case](docs/USER-EXPERIENCE-CASES.md) | 产品需求、证据分层进度与从易到难的体验目标；按各例实际执行范围更新，历史快照不等于当前状态 |
 | [多任务并行与验证](docs/PARALLEL-EXECUTION.md) | 主集成、两个隔离开发任务和单一独立测试角色；文件归属、阶段依赖与交付规则 |
 | [README](README.md) | 工程结构与当前可用内容 |

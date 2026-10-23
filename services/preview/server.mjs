@@ -37,6 +37,10 @@ const server = http.createServer(async(req,res)=>{
   res.setHeader('Referrer-Policy','same-origin');
   res.setHeader('Cross-Origin-Resource-Policy','same-origin');
   try {
+    if(network.runtimeRequestOrigin(req)){
+      if(creation.runtimeAccess.request(req,res))return;
+      return json(res,403,{error:'运行地址不提供创作或管理接口'});
+    }
     const origin = network.requestOrigin(req);
     if (!origin) return json(res,403,{error:'请使用当前工作台的本机或局域网地址'});
     const path = decodeURIComponent(new URL(req.url,origin).pathname);
@@ -83,6 +87,9 @@ const server = http.createServer(async(req,res)=>{
     if (path==='/prefab-preview.html') return file(res,resolve(app,'prefab-preview.html'));
     if(path==='/native-shared-play.js')return file(res,resolve(app,'native-shared-play.js'));
     if (path==='/game-play.js') return file(res,resolve(app,'game-play.js'));
+    if(['/runtime-access.js','/runtime-storage.js'].includes(path))return file(res,resolve(app,path.slice(1)));
+    if(['/play-context.js','/play-context-buffer.js','/play-context.css','/session-continuation.js'].includes(path))return file(res,resolve(app,path.slice(1)));
+    if(['/native-merge-panel.js','/native-offline-panel.js'].includes(path))return file(res,resolve(app,path.slice(1)));
     if(path==='/market-model-preview.js'){const bytes=adminPreviewBundle(root);res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-cache'});res.end(bytes);return;}
     if(['/market','/market/'].includes(path)||/^\/market\/assets\/[\w-]+$/.test(path))return file(res,resolve(app,'asset-market.html'));
     if(['/asset-market.js','/asset-market.css','/asset-market-page.js'].includes(path))return file(res,resolve(app,path.slice(1)));
@@ -90,6 +97,7 @@ const server = http.createServer(async(req,res)=>{
     if (['/image-attachments.js','/reference-components.js','/reference-components.css','/semantic-composer.js','/semantic-inspector.js','/semantic-workspace-context.js','/semantic-authoring.css','/collaboration-access.js','/collaboration-access.css','/client-platform.js','/auto-game-cover.js','/game-catalog.js','/game-catalog.css','/workspace.js','/workspace.css','/preview-bridge.js','/transform-history.js','/collaboration-client.js','/hierarchy-editor.js','/hierarchy-prefabs.js','/inbox.js','/inbox.css','/client-diagnostics.js','/release-builds.js','/release-builds.css'].includes(path)) return file(res,resolve(app,path.slice(1)));
     if (path==='/packages/contracts/viewport-annotations.mjs') return file(res,resolve(root,'packages/contracts/viewport-annotations.mjs'));
     if (path==='/packages/contracts/authoring-references.mjs') return file(res,resolve(root,'packages/contracts/authoring-references.mjs'));
+    if(path==='/packages/contracts/play-context.mjs')return file(res,resolve(root,'packages/contracts/play-context.mjs'));
     if (path==='/packages/scene/transform.mjs') return file(res,resolve(root,'packages/scene/transform.mjs'));
     if (path.startsWith('/preview-runtime/')) {
       const relative=path.slice('/preview-runtime/'.length);
@@ -116,7 +124,7 @@ const server = http.createServer(async(req,res)=>{
     return json(res,404,{error:'Not found'});
   } catch(error) { if (!res.headersSent) json(res,error.status??400,{error:error.message});else res.destroy(); }
 });
-const creation = new CreationService({server,root,data:resolve(process.env.WORLD_ATELIER_CREATION_DATA??`${data}/creation`),origin:`http://127.0.0.1:${port}`,runtimeBuild:build,publicPlay:network.publicPlay,requestOrigin:network.requestOrigin,workspaceUrls:network.urls});
+const creation = new CreationService({server,root,data:resolve(process.env.WORLD_ATELIER_CREATION_DATA??`${data}/creation`),origin:`http://127.0.0.1:${port}`,runtimeBuild:build,publicPlay:network.publicPlay,requestOrigin:network.requestOrigin,workspaceUrls:network.urls,network});
 server.listen(port,network.host,()=>console.log(`世界工坊已启动（${network.publicPlay?'注册即可试玩现有游戏':'项目按邀请访问'}）：\n${network.urls().join('\n')}`));
 let shuttingDown=false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal,async()=>{

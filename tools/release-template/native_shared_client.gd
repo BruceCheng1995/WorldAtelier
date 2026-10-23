@@ -1,5 +1,6 @@
 extends Node
 const Codec=preload("res://native_shared_codec.gd")
+const NativeTransport=preload("res://native_client_transport.gd")
 var runtime:Node
 var is_client=true
 var active=false
@@ -25,6 +26,10 @@ var last_source_identity=""
 func start(value:Node)->void:
 	runtime=value
 	process_mode=Node.PROCESS_MODE_ALWAYS
+	if not OS.has_feature("web") and not OS.get_environment("WA_NATIVE_CLIENT_CONFIG").is_empty():
+		var transport=NativeTransport.new()
+		add_child(transport)
+		transport.start(runtime)
 	load_entry.call_deferred()
 func is_authority()->bool:return false
 func load_entry()->void:

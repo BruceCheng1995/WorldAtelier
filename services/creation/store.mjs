@@ -361,7 +361,8 @@ export class CreationStore extends Storage {
   }
   removeAttachment(user,sid,attachmentId) {
     const session=this.sessionFor(user,sid,true);
-    session.draft_attachments=session.draft_attachments.filter(a=>a.id!==attachmentId);
+    const selected=session.draft_attachments.find(a=>a.id===attachmentId),observation=selected?.kind==='play_observation'?selected.observation_id:null;
+    session.draft_attachments=session.draft_attachments.filter(a=>a.id!==attachmentId&&(!observation||a.observation_id!==observation));
     session.updated_at=Date.now();return this.put('creator_session',session);
   }
   attach(user,sid,input) {

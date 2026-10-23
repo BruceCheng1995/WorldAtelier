@@ -569,8 +569,9 @@ export class CreationBuilds {
     res.writeHead(200,{'Content-Type':type,'Content-Length':entry.size,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff',...(attachment?{'Content-Disposition':`attachment; filename="${entry.filename}"`}:{})});
     if(req.method==='HEAD')res.end();else createReadStream(path).pipe(res);
   }
-  access(user,jobId,res){
+  access(user,jobId,res,req){
     const job=this.forUser(user,jobId);if(!job.web_files?.length)fail(409,'此任务没有就绪的 Web 版本');
+    if(job.purpose!=='native_preview')return this.service.runtimeAccess.issue(user,job,req);
     const token=randomBytes(32).toString('base64url'),expires_at=Date.now()+3600000;
     this.store.put('creator_build_access',{id:hash(token),job_id:job.id,user_id:user.id,expires_at});
     res.setHeader('Set-Cookie',`atelier_release=${token}; Path=/creation-releases/${job.id}/; HttpOnly; SameSite=Strict; Max-Age=3600`);
@@ -585,6 +586,11 @@ export class CreationBuilds {
     if(!grant||grant.job_id!==match[1]||grant.expires_at<Date.now())fail(403,'请从工作台重新打开此 Web 版本');
     const job=this.forUser({id:grant.user_id},match[1]),entry=job.web_files?.find(e=>e.path===match[2]);
     if(!entry)fail(404,'文件不在固定发行清单中');
+    if(job.purpose!=='native_preview'){
+      // Historical release cookies are not tied to an active creator login.
+      // Never exchange them for a renewable author-code execution capability.
+      fail(403,'此旧运行地址已改为隔离访问；请登录原工作台，重新打开这个固定 Web 版本');
+    }
     const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.wasm':'application/wasm','.png':'image/png','.json':'application/json'};
     this.stream(req,res,join(this.directory,job.id,'web',entry.path),entry,types[extname(entry.path)]??'application/octet-stream');return true;
   }

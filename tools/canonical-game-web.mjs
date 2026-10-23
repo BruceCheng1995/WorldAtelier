@@ -10,6 +10,9 @@ export function adaptCanonicalGameWeb({html,identity,storage}){
   const fixed=JSON.stringify({policy:CANONICAL_WEB_POLICY,identity,storage}).replace(/</g,'\\u003c');
   const injected=`const WA_GAME_MANIFEST = ${fixed};
 const waParameters = new URLSearchParams(window.location.search);
+// The access shell lives on the isolated runtime origin and supplies this
+// exact parent window. No creator token is ever part of the game contract.
+window.WA_RUNTIME_HOST = Object.freeze({parent_origin:waParameters.get('wa_parent_origin') || window.location.origin,launch_nonce:waParameters.get('nonce') || ''});
 const waEmbedded = window.parent !== window && waParameters.get('launch') === 'editor' && waParameters.get('wa_embedded') === '1' && Boolean(waParameters.get('nonce'));
 // Disable IDBFS before Engine initialization. Each iframe receives fresh RAM
 // user://, so stop/restart and another user's preview cannot inherit its save.

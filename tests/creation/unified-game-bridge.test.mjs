@@ -11,14 +11,14 @@ function bridge(t) {
   Object.defineProperty(globalThis,'location',{configurable:true,value:{origin:'http://localhost:48921'}});
   t.after(()=>previous?Object.defineProperty(globalThis,'location',previous):delete globalThis.location);
   const seen=[],sent=[],errors=[],preview=Object.create(GamePlay.prototype),frame={contentWindow:{}};
-  Object.assign(preview,{frame,disposed:false,nonce:'unique-iframe-nonce',seq:1,commandSeq:1,loadedSeq:1,sceneGeneration:1,runtimeBuildId:'a'.repeat(64),job:{source_revision:'source',runtime_source_hash:'b'.repeat(64)},worldContext:{world_id:'preview:one',epoch:1},sceneContext:{document_id:'project/main/A'},host:{dataset:{}},status:{textContent:''},post:packet=>sent.push(packet),onEvent:packet=>seen.push(packet),diagnostic(){},fail:error=>errors.push(error)});
-  const emit=(message,patch={})=>preview.receive({origin:location.origin,source:frame.contentWindow,data:{source:'world-atelier-game',nonce:preview.nonce,canonical_identity:preview.runtimeBuildId,seq:1,scene_generation:1,...message},...patch});
+  Object.assign(preview,{frame,disposed:false,runtimeOrigin:'http://[::ffff:7f00:1]:48921',nonce:'unique-iframe-nonce',seq:1,commandSeq:1,loadedSeq:1,sceneGeneration:1,runtimeBuildId:'a'.repeat(64),job:{source_revision:'source',runtime_source_hash:'b'.repeat(64)},worldContext:{world_id:'preview:one',epoch:1},sceneContext:{document_id:'project/main/A'},host:{dataset:{}},status:{textContent:''},post:packet=>sent.push(packet),onEvent:packet=>seen.push(packet),diagnostic(){},fail:error=>errors.push(error)});
+  const emit=(message,patch={})=>preview.receive({origin:preview.runtimeOrigin,source:frame.contentWindow,data:{source:'world-atelier-game',nonce:preview.nonce,canonical_identity:preview.runtimeBuildId,seq:1,scene_generation:1,...message},...patch});
   return {preview,seen,sent,errors,emit};
 }
 
 test('game bridge rejects foreign windows, origins, nonces and mismatched boot identities',t=>{
   const f=bridge(t),ready={type:'ready',source_revision:'source',runtime_source_hash:'b'.repeat(64),capabilities:['canonical-game-runtime']};
-  f.emit(ready,{origin:'http://other.invalid'});f.emit(ready,{source:{}});f.emit({...ready,nonce:'old'});assert.equal(f.preview.ready,undefined);
+  f.emit(ready,{origin:location.origin});f.emit(ready,{origin:'http://other.invalid'});f.emit(ready,{source:{}});f.emit({...ready,nonce:'old'});assert.equal(f.preview.ready,undefined);
   f.emit({...ready,source_revision:'old'});assert.equal(f.errors.length,1);assert.equal(f.preview.ready,undefined);
   f.emit(ready);assert.equal(f.preview.ready,true);
   f.emit({type:'world_state',canonical_identity:'c'.repeat(64)});assert.equal(f.errors.length,2);assert.equal(f.seen.length,0);
