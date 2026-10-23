@@ -26,7 +26,7 @@ export class NativeClients{
       if(this.closed||!origin||req.headers.origin&&req.headers.origin!==origin){socket.destroy();return;}
       this.wss.handleUpgrade(req,socket,head,ws=>this.connect(ws,origin));
     });
-    for(const transfer of this.store.list(TRANSFER))if(['preparing','fencing','synchronizing','activating','active'].includes(transfer.status))this.store.put(TRANSFER,{...transfer,status:'interrupted',error:'服务重启，需重新解析当前世界并接续',updated_at:Date.now()});
+    for(const transfer of this.store.list(TRANSFER))if(['preparing','fencing','synchronizing','activating','active','restoring_previous'].includes(transfer.status))this.store.put(TRANSFER,{...transfer,status:'interrupted',error:'服务重启，需重新解析当前世界并接续',updated_at:Date.now()});
     this.timer=setInterval(()=>{for(const client of this.clients.values())if(Date.now()-client.last_seen>35000)client.ws.close(1001,'Heartbeat expired');},5000);this.timer.unref();
   }
   owner(){if(!this.service.worlds?.native)fail(503,'原生共享世界服务尚未就绪');return this.service.worlds;}
@@ -208,6 +208,11 @@ export class NativeClients{
   }
   sendActive(client,confirmed=false){const world=client.world;this.send(client,{type:'world',packet:{action:confirmed?'control_confirmed':'active',native_shared:true,world_id:world.id,epoch:world.epoch,scene_revision:world.revision,resource_id:world.snapshot.resource_id,scene_generation:world.snapshot.scene_generation,control_generation:client.control_generation,player_id:client.user.id,sequence:client.world_barrier.sequence,state_hash:client.world_barrier.state_hash,source_identity:world.source_identity,snapshot:clone(world.snapshot)}});}
   holdPlayerOnLeave(previous,world){
+    if(previous.pending_restore_transfer_id){
+      const recovery=this.store.get(TRANSFER,previous.pending_restore_transfer_id);
+      if(recovery?.status==='restoring_previous')this.store.put(TRANSFER,{...recovery,status:'failed',recovery_error:'旧客户端在实际恢复控制之前离开；共享进度保留，请重新接续',updated_at:Date.now()});
+      delete previous.pending_restore_transfer_id;
+    }
     const target=this.clients.get(previous.handoff_target_client);
     if(target&&target.world===world&&(['fencing','synchronizing','activating'].includes(target.phase)||target.rolling_back)){
       target.previous_departed=true;return true;

@@ -88,7 +88,7 @@ func _process(delta: float) -> void:
 			runtime.shared.receive({"action":"disconnect"})
 			stop_with_error("共享连接已断开；服务器保留世界进度，请重新接续")
 		elif elapsed > 15.0: stop_with_error("共享世界连接超时")
-	if not active and phase in ["loading", "preparing", "prepare", "commit", "activating"] and elapsed > 90.0:
+	if not active and phase in ["loading", "preparing", "prepare", "commit", "restore", "activating"] and elapsed > 90.0:
 		stop_with_error("客户端准备超时，未声明已接管控制")
 	telemetry_clock += delta
 	if active and telemetry_clock >= 1.0:
