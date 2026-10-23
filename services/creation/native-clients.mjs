@@ -93,7 +93,16 @@ export class NativeClients{
       }
       if(message.type==='native_ready')return this.ready(client,message.packet);
       if(message.type==='active_applied')return this.confirmActive(client,message.packet);
-      if(message.type==='world_input'&&client.phase==='active')return this.owner().native.message(client,{type:'world_input',input:message.input});
+      if(message.type==='world_input'&&client.phase==='active'){
+        const handoff=this.clients.get(client.handoff_target_client);
+        if(!client.world_active&&(client.native_control_transferred||handoff?.world===client.world&&(['fencing','synchronizing','activating'].includes(handoff.phase)||handoff.rolling_back))){
+          // A real input can already be in flight when the old endpoint learns
+          // that it was fenced. Reject that input without killing the endpoint
+          // needed for rollback. Authentication above is still mandatory.
+          this.send(client,{type:'world',packet:{action:'input_ack',native_shared:true,ok:false,code:client.native_control_transferred?'CONTROL_TRANSFERRED':'CONTROL_FENCED',world_id:client.world.id,epoch:client.world.epoch,scene_revision:client.world.revision,input_seq:message.input?.input_seq,error:'此输入的控制代次已封口，等待当前接续结果'}});return;
+        }
+        return this.owner().native.message(client,{type:'world_input',input:message.input});
+      }
       if(message.type==='applied'&&client.phase==='active')return; // Display progress is not a control grant.
       fail(403,'客户端票据不允许此操作');
     }).catch(async error=>{this.send(client,{type:'native_client_error',error:String(error.message).slice(0,800),status:error.status??400});if(client.phase!=='active'){await this.rollback(client,error.message);ws.close(1008,'Preparation failed');}});});
@@ -199,7 +208,7 @@ export class NativeClients{
         const version=this.advanceControl(world,client.user.id,client.id,'native_handoff');
         this.transition(client,'active',{control_confirmed_at:Date.now(),controller_version:version});client.controller_version=version;
       });
-      if(old&&world.clients.get(old.id)===old){world.clients.delete(old.id);old.world_key=null;old.world_scope=null;old.world_active=false;old.control_generation=null;old.world_barrier=null;delete old.handoff_target_client;}
+      if(old&&world.clients.get(old.id)===old){world.clients.delete(old.id);old.world_key=null;old.world_scope=null;old.world_active=false;old.control_generation=null;old.world_barrier=null;old.native_control_transferred=true;delete old.handoff_target_client;}
       client.world_active=true;client.phase='active';world.joining.delete(client.user.id);clearTimeout(client.timer);
       if(old)this.service.realtime.send(old,{type:'world',packet:{action:'control_transferred',native_shared:true,world_id:world.id,epoch:world.epoch,scene_revision:world.revision,transfer_id:client.checkout.id}});
     }
