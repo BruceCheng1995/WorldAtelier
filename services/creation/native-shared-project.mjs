@@ -23,7 +23,7 @@ export async function configureNativeSharedProject({service,job,directory,godotP
  if(manifest.schema!=='creation-native-1'||release.revision!==job.source_revision||release.source_identity!==manifest.source_identity)fail(409,'Shared project fixed source mismatch');
  const authority_directory=join(dirname(directory),'native-authority');if(existsSync(authority_directory))fail(409,'Fixed authority directory already exists');
  cpSync(directory,authority_directory,{recursive:true,filter:path=>!path.split('/').includes('.godot')});
- const shared={protocol:1,contract:NATIVE_SHARED_CONTRACT,role:'authority',build_id:job.canonical_identity??job.id,source_identity:manifest.source_identity};
+ const shared={protocol:1,native_client_protocol:1,contract:NATIVE_SHARED_CONTRACT,role:'authority',build_id:job.canonical_identity??job.id,source_identity:manifest.source_identity};
  writeFileSync(join(authority_directory,'atelier_runtime/release.json'),JSON.stringify({...release,native_shared:shared},null,2)+'\n');
  const temp=mkdtempSync(join(tmpdir(),'wa-shared-client-')),trusted=join(temp,'trusted'),projection=join(dirname(directory),'shared-projection-candidate');
  mkdirSync(trusted);writeFileSync(join(trusted,'native_main.gd'),'extends Node\n');writeFileSync(join(trusted,'main.tscn'),'[gd_scene load_steps=2 format=3]\n[ext_resource type="Script" path="res://native_main.gd" id="1"]\n[node name="SharedPreview" type="Node"]\nscript=ExtResource("1")\n');
@@ -36,7 +36,7 @@ export async function configureNativeSharedProject({service,job,directory,godotP
   writeFileSync(join(projection,'atelier_runtime/release.json'),JSON.stringify({...release,native_shared:{...shared,role:'client',scenes:paths}},null,2)+'\n');
   writeFileSync(join(projection,'project.godot'),nativeLaunchSettings(readFileSync(join(projection,'project.godot'),'utf8')));
   if(stable(before)!==stable(nativeSharedInventory(authority_directory)))throw Error('Fixed native authority project changed during projection build');
-  const receipt={format:1,contract:NATIVE_SHARED_CONTRACT,source_revision:release.revision,source_identity:manifest.source_identity,build_id:shared.build_id,authority_directory,authority_files:before,projection_files:nativeSharedInventory(projection),state_config:{declaration:'metadata/wa_shared',state:'explicit_properties',defaults:'explicit_properties',dynamic:'GameRuntime.shared.spawn',inputs:'declared_actions_only'},bake:baked.receipt,policy:{...baked.config.policy,preview_only:false,gameplay:'central_authority_only',author_scripts_on_client:false}};
+  const receipt={format:1,native_client_protocol:1,contract:NATIVE_SHARED_CONTRACT,source_revision:release.revision,source_identity:manifest.source_identity,build_id:shared.build_id,authority_directory,authority_files:before,projection_files:nativeSharedInventory(projection),state_config:{declaration:'metadata/wa_shared',state:'explicit_properties',defaults:'explicit_properties',dynamic:'GameRuntime.shared.spawn',inputs:'declared_actions_only'},bake:baked.receipt,policy:{...baked.config.policy,preview_only:false,gameplay:'central_authority_only',author_scripts_on_client:false}};
   rmSync(directory,{recursive:true});renameSync(projection,directory);
   return {directory,authority_directory,receipt};
  }catch(error){rmSync(projection,{recursive:true,force:true});throw error;}finally{rmSync(temp,{recursive:true,force:true});}

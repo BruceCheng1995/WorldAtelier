@@ -330,6 +330,7 @@ export class NativeWorlds {
         const reply=await this.owner.command(world,{type:'join',player_id:client.user.id,name:client.user.name,color:userColor(client.user)});if(!reply.ok)fail(422,reply.error??'共享角色加入失败');
         joined=true;current();if(reply.snapshot)this.ingest(world,reply.snapshot);
       }
+      client.controller_version=this.service.nativeClients?.advanceControl(world,client.user.id,client.id,'web_join');
       world.clients.set(client.id,client);client.world_key=key;client.world_scope=scope;client.world_active=false;client.native_runtime_build_id=world.runtime_build_id;client.control_generation=randomBytes(24).toString('base64url');client.last_input_seq=world.snapshot.players[client.user.id]?.last_input_seq??0;client.zeroInputs=new Set();client.inspection=null;
       const snapshot=clone(world.snapshot);world.history.set(snapshot.sequence,snapshot);client.world_barrier={sequence:snapshot.sequence,state_hash:hash(snapshot)};
       this.service.realtime.send(client,{type:'world',packet:{action:'join',native_shared:true,world_id:world.id,epoch:world.epoch,scene_revision:world.revision,resource_id:snapshot.resource_id,scene_generation:snapshot.scene_generation,source_identity:world.source_identity,player_id:client.user.id,control_generation:client.control_generation,input_seq_base:client.last_input_seq,snapshot,state_hash:client.world_barrier.state_hash,scene:this.scene(client.user,world),manifest:this.clientManifest(world)}});

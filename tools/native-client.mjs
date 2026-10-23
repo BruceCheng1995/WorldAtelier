@@ -2,9 +2,9 @@
 // Portable, single-file launcher for an already installed matching Godot 4.6.
 // The native process receives only a short-lived, one-world game capability.
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdir,readFile,writeFile,rename,rm,lstat,realpath,copyFile,open} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,rename,rm,lstat,realpath,copyFile,open,readdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
-import {resolve,join,dirname,basename,sep} from 'node:path';
+import {resolve,join,dirname,basename} from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {pathToFileURL} from 'node:url';
@@ -23,15 +23,32 @@ async function safeDirectory(path){
   try{await mkdir(destination,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}
   const created=await lstat(destination);assert(created.isDirectory()&&!created.isSymbolicLink(),'客户端目录在创建期间改变');return destination;
 }
-export function clientRequest(server,token){
+export function clientRequest(server,token,signal){
   const origin=new URL(server);assert(['http:','https:'].includes(origin.protocol)&&!origin.username&&!origin.password,'服务器地址无效');
   return async(route,{method='GET',body,bytes=false,maximum=1024*1024}={})=>{
     const url=new URL(route,origin);assert(url.origin===origin.origin&&url.pathname.startsWith('/creation-api/'),'拒绝向其他地址发送创作凭据');
-    const response=await fetch(url,{method,redirect:'error',headers:{Authorization:`Bearer ${token}`,Origin:origin.origin,...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(120000)});
+    const response=await fetch(url,{method,redirect:'error',headers:{Authorization:`Bearer ${token}`,Origin:origin.origin,...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(120000)});
     const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>maximum){await response.body.cancel?.().catch(()=>{});throw Error('服务器响应超过固定清单上限');}chunks.push(chunk);}
     const value=Buffer.concat(chunks);if(!response.ok){let error;try{error=JSON.parse(value);}catch{}throw Object.assign(Error(error?.error??`请求失败 ${response.status}`),{status:response.status,details:error?.details});}
     return bytes?value:JSON.parse(value);
   };
+}
+async function verifyProject(root,files){
+  const expected=new Map(files.map(file=>[file.path,file])),directories=new Set(['']);
+  for(const file of files){let path=file.path;while(path.includes('/')){path=path.slice(0,path.lastIndexOf('/'));directories.add(path);}}
+  const seen=new Set();
+  const walk=async relative=>{
+    const directory=join(root,relative),stat=await lstat(directory);
+    assert(stat.isDirectory()&&!stat.isSymbolicLink(),'固定客户端目录已变化，原件保留：'+relative);
+    for(const entry of await readdir(directory,{withFileTypes:true})){
+      const path=relative?relative+'/'+entry.name:entry.name;
+      assert(!entry.isSymbolicLink(),'固定客户端含符号链接，原件保留：'+path);
+      if(entry.isDirectory()){assert(directories.has(path),'固定客户端含清单外目录，原件保留：'+path);await walk(path);continue;}
+      const file=expected.get(path),full=join(root,path),actual=await lstat(full);
+      assert(file&&actual.isFile()&&!actual.isSymbolicLink()&&actual.size===file.size&&await shaFile(full)===file.sha256,'固定客户端副本已变化，原件保留：'+path);seen.add(path);
+    }
+  };
+  await walk('');assert(seen.size===expected.size,'固定客户端文件缺失');
 }
 export async function prepareNativeClient({request,checkout,directory,onProgress=()=>{}}){
   assert(checkout?.protocol==='wa-native-client-1'&&Array.isArray(checkout.files)&&checkout.files.length&&checkout.files.length<=50000&&hashJson(checkout.files)===checkout.manifest_hash,'固定客户端清单无效');
@@ -50,7 +67,7 @@ export async function prepareNativeClient({request,checkout,directory,onProgress
       try{await rename(temporary,cache);}finally{await rm(temporary,{force:true});}downloaded+=bytes.length;onProgress({downloaded,reused,total});
     }
   }));
-  const verify=async root=>{for(const file of checkout.files){const path=join(root,file.path),stat=await lstat(path);assert(stat.isFile()&&!stat.isSymbolicLink()&&stat.size===file.size&&(await realpath(path)).startsWith((await realpath(root))+sep)&&await shaFile(path)===file.sha256,'固定客户端副本已变化：'+file.path);}};
+  const verify=root=>verifyProject(root,checkout.files);
   if(await exists(project))await verify(project);
   else{
     const stage=await safeDirectory(join(projects,'.preparing-'+randomUUID()));
@@ -71,22 +88,36 @@ async function verifyEngine(engine,checkout){
   }
   return path;
 }
-async function launch({request,checkout,prepared,engine,headless=false,timeout=0,onStatus=()=>{}}){
-  const executable=await verifyEngine(engine,checkout),access=await request(`/creation-api/native-clients/checkouts/${checkout.id}/access`,{method:'POST',body:{}});
+async function launch({request,checkout,prepared,engine,headless=false,timeout=0,signal,onStatus=()=>{}}){
+  signal?.throwIfAborted();
+  const executable=await verifyEngine(engine,checkout);signal?.throwIfAborted();
+  await verifyProject(prepared.project,checkout.files);signal?.throwIfAborted();
+  const access=await request(`/creation-api/native-clients/checkouts/${checkout.id}/access`,{method:'POST',body:{}});signal?.throwIfAborted();
   assert(access.protocol==='wa-native-client-1'&&access.checkout.manifest_hash===checkout.manifest_hash,'接续票据与已下载工程不匹配');
   const execution=await safeDirectory(join(prepared.directory,'executions',randomUUID())),config=join(execution,'launch.json');
+  const project=await safeDirectory(join(execution,'project'));
+  for(const file of checkout.files){signal?.throwIfAborted();const target=join(project,file.path);await safeDirectory(dirname(target));await copyFile(join(prepared.project,file.path),target);}
+  await verifyProject(project,checkout.files);signal?.throwIfAborted();
+  const env=Object.fromEntries(['PATH','HOME','TMPDIR','LANG','LC_ALL','DISPLAY','XDG_RUNTIME_DIR'].filter(key=>process.env[key]).map(key=>[key,process.env[key]]));env.GODOT_SILENCE_ROOT_WARNING='1';
+  const imported=await exec(executable,['--headless','--audio-driver','Dummy','--editor','--import','--path',project],{env,cwd:execution,signal,timeout:90000,maxBuffer:2*1024*1024});
+  const importLog=imported.stdout+imported.stderr;await writeFile(join(execution,'import.log'),importLog,{mode:0o600});
+  assert(!/SCRIPT ERROR|Parse Error|ERROR:/.test(importLog),'原生客户端资源导入失败，见 '+join(execution,'import.log'));
+  for(const file of checkout.files)assert(await shaFile(join(project,file.path))===file.sha256,'导入修改了固定客户端源文件：'+file.path);
+  signal?.throwIfAborted();
   await writeFile(config,JSON.stringify({format:'wa-native-client-launch-1',ticket:access.ticket,websocket_url:access.websocket_url,runtime_instance_id:randomUUID()})+'\n',{flag:'wx',mode:0o600});
-  const env=Object.fromEntries(['PATH','HOME','TMPDIR','LANG','LC_ALL','DISPLAY','XDG_RUNTIME_DIR'].filter(key=>process.env[key]).map(key=>[key,process.env[key]]));env.WA_NATIVE_CLIENT_CONFIG=config;env.GODOT_SILENCE_ROOT_WARNING='1';
-  const args=[...(headless?['--headless','--audio-driver','Dummy','--max-fps','30']:[]),'--path',prepared.project,'--log-file',join(execution,'godot.log')];
+  env.WA_NATIVE_CLIENT_CONFIG=config;
+  const args=[...(headless?['--headless','--audio-driver','Dummy','--max-fps','30']:[]),'--path',project,'--log-file',join(execution,'godot.log')];
   const log=await open(join(execution,'telemetry.jsonl'),'a',0o600);
   const child=spawn(executable,args,{env,cwd:execution,stdio:['ignore','pipe','pipe'],detached:process.platform!=='win32'});
   let partial='',errorTail='',active=false,closed=false;
   const stop=()=>{if(!closed)try{process.platform==='win32'?child.kill('SIGTERM'):process.kill(-child.pid,'SIGTERM');}catch{}};
   const deadline=timeout>0?setTimeout(stop,timeout*1000):null;
-  child.stdout.on('data',chunk=>{partial+=chunk.toString();let end;while((end=partial.indexOf('\n'))>=0){const line=partial.slice(0,end);partial=partial.slice(end+1);if(line.startsWith('NATIVE_CLIENT_STATUS '))try{const packet=JSON.parse(line.slice(21));active||=packet.status==='active';void log.write(JSON.stringify(packet)+'\n').catch(error=>{errorTail='客户端日志保存失败：'+error.message;});onStatus(packet);}catch{}}if(partial.length>128000)partial=partial.slice(-64000);});
+  const firstControlDeadline=setTimeout(()=>{errorTail='客户端在 90 秒内未取得实际控制权';stop();},90000);
+  signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();
+  child.stdout.on('data',chunk=>{partial+=chunk.toString();let end;while((end=partial.indexOf('\n'))>=0){const line=partial.slice(0,end);partial=partial.slice(end+1);if(line.startsWith('NATIVE_CLIENT_STATUS '))try{const packet=JSON.parse(line.slice(21));active||=packet.status==='active';if(active)clearTimeout(firstControlDeadline);void log.write(JSON.stringify(packet)+'\n').catch(error=>{errorTail='客户端日志保存失败：'+error.message;});onStatus(packet);}catch{}}if(partial.length>128000)partial=partial.slice(-64000);});
   child.stderr.on('data',chunk=>{errorTail=(errorTail+chunk.toString()).slice(-4000);});
   const done=new Promise((resolvePromise,reject)=>{
-    child.once('error',reject);child.once('close',async(code,signal)=>{closed=true;if(deadline)clearTimeout(deadline);await log.close();await rm(config,{force:true});resolvePromise({code,signal,active,execution,error:errorTail});});
+    child.once('error',reject);child.once('close',async(code,exitSignal)=>{closed=true;if(deadline)clearTimeout(deadline);clearTimeout(firstControlDeadline);signal?.removeEventListener('abort',stop);await log.close();await rm(config,{force:true});resolvePromise({code,signal:exitSignal,active,execution,error:errorTail});});
   });
   return {child,done,stop,execution,get active(){return active;}};
 }
@@ -107,7 +138,7 @@ async function main(){
   let token=process.env.WORLD_ATELIER_TOKEN;
   if(!token&&args.login){const origin=new URL(server).origin,response=await fetch(origin+'/creation-api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({name:args.login,password:await password()}),redirect:'error'}),value=await response.json();assert(response.ok,value.error??'登录失败');token=value.token;}
   assert(token,'请设置 WORLD_ATELIER_TOKEN，或使用 --login=账号 在终端登录');
-  const request=clientRequest(server,token),directory=resolve(args.dir??'.local/native-client'),engine=String(args.engine??process.env.GODOT_BIN??'/Applications/Godot.app/Contents/MacOS/Godot');
+  const cancellation=new AbortController(),request=clientRequest(server,token,cancellation.signal),directory=resolve(args.dir??'.local/native-client'),engine=String(args.engine??process.env.GODOT_BIN??'/Applications/Godot.app/Contents/MacOS/Godot');
   const locks=await safeDirectory(directory),lock=join(locks,'launcher.lock');let lockFile;
   const acquire=async()=>{const handle=await open(lock,'wx',0o600);await handle.writeFile(JSON.stringify({pid:process.pid,started_at:Date.now()}));return handle;};
   try{lockFile=await acquire();}catch(error){
@@ -122,12 +153,12 @@ async function main(){
     }finally{await recovery.close();await rm(recoveryPath,{force:true});}
   }
   let current=null,pending=null,stopping=false,completed=0;
-  const stop=()=>{stopping=true;current?.stop();pending?.stop();};process.on('SIGINT',stop);process.on('SIGTERM',stop);
+  const stop=()=>{stopping=true;cancellation.abort();current?.stop();pending?.stop();};process.on('SIGINT',stop);process.on('SIGTERM',stop);
   const prepare=async()=>{const checkout=await request('/creation-api/native-clients/checkouts',{method:'POST',body:{request_id:randomUUID(),project_id:project,branch_id:branch,resource_id:resource}});const prepared=await prepareNativeClient({request,checkout,directory});console.log(JSON.stringify({stage:'prepared',checkout_id:checkout.id,source_revision:checkout.source_revision,runtime_build_id:checkout.runtime_build_id,downloaded_bytes:prepared.downloaded_bytes,reused_bytes:prepared.reused_bytes}));return {checkout,prepared};};
   try{
     let next=await prepare();if(command==='prepare')return;
     let upgraded=false;
-    const start=async input=>launch({request,...input,engine,headless:args.headless===true,timeout:Number(args.timeout)||0,onStatus:packet=>{
+    const start=async input=>launch({request,...input,engine,signal:cancellation.signal,headless:args.headless===true,timeout:Number(args.timeout)||0,onStatus:packet=>{
       console.log(JSON.stringify(packet));if(packet.status==='upgrade_required')upgraded=true;
     }});
     current=await start(next);
@@ -142,7 +173,7 @@ async function main(){
           assert(pending.active,'新客户端未确认接续，旧画面与服务器进度保留');current.stop();await current.done;current=pending;pending=null;completed++;continue;
         }catch(error){pending?.stop();await pending?.done;pending=null;console.error('客户端更新未接续：'+error.message);}
       }
-      if(result){if(result.code!==0&&!(args.timeout&&result.signal==='SIGTERM'&&result.active))throw Error(result.error||(result.active?'共享客户端连接已结束，需要重新接续':'客户端未取得实际控制权'));break;}
+      if(result){if(!result.active||result.code!==0&&!(args.timeout&&result.signal==='SIGTERM'&&result.active))throw Error(result.error||(result.active?'共享客户端连接已结束，需要重新接续':'客户端未取得实际控制权'));break;}
     }
     console.log(JSON.stringify({stage:'closed',completed_transfers:completed}));
   }finally{stop();await Promise.allSettled([current?.done,pending?.done].filter(Boolean));await lockFile.close();await rm(lock,{force:true});process.off('SIGINT',stop);process.off('SIGTERM',stop);}

@@ -12,6 +12,7 @@ var phase = "loading"
 var elapsed = 0.0
 var heartbeat = 0.0
 var telemetry_clock = 0.0
+var pending_control: Dictionary = {}
 
 func start(value: Node) -> void:
 	runtime = value
@@ -42,6 +43,12 @@ func start(value: Node) -> void:
 func send(packet: Dictionary) -> void:
 	if peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
 		peer.send_text(JSON.stringify(packet))
+
+func boundary_packet(packet: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	for key in ["world_id", "epoch", "scene_revision", "source_identity", "resource_id", "scene_generation", "control_generation", "sequence", "state_hash"]:
+		if packet.has(key): result[key] = packet[key]
+	return result
 
 func report(status: String, detail: Dictionary = {}) -> void:
 	var output = {"status":status, "source_revision":runtime.release.get("revision", ""), "runtime_build_id":runtime.release.get("native_shared", {}).get("build_id", ""), "resource_id":runtime.current_scene_id}
@@ -81,7 +88,7 @@ func _process(delta: float) -> void:
 			runtime.shared.receive({"action":"disconnect"})
 			stop_with_error("共享连接已断开；服务器保留世界进度，请重新接续")
 		elif elapsed > 15.0: stop_with_error("共享世界连接超时")
-	if not active and phase in ["loading", "preparing", "prepare", "commit"] and elapsed > 90.0:
+	if not active and phase in ["loading", "preparing", "prepare", "commit", "activating"] and elapsed > 90.0:
 		stop_with_error("客户端准备超时，未声明已接管控制")
 	telemetry_clock += delta
 	if active and telemetry_clock >= 1.0:
@@ -103,11 +110,19 @@ func receive(message: Dictionary) -> void:
 	match packet.get("action", ""):
 		"join":
 			active = false
+			elapsed = 0.0
 			phase = str(packet.get("native_client_phase", "restore"))
 			report("applying_baseline", {"phase":phase, "world_id":packet.world_id, "epoch":packet.epoch, "sequence":packet.snapshot.sequence})
 			runtime.shared.receive(packet)
 		"active":
 			runtime.shared.receive(packet)
+			if runtime.shared.active:
+				pending_control = packet.duplicate(true)
+				phase = "activating"
+				active = false
+				send({"type":"active_applied", "packet":boundary_packet(packet)})
+		"control_confirmed":
+			if pending_control.get("control_generation") != packet.get("control_generation") or pending_control.get("world_id") != packet.get("world_id") or pending_control.get("epoch") != packet.get("epoch") or pending_control.get("scene_revision") != packet.get("scene_revision"): return
 			active = runtime.shared.active
 			if active:
 				phase = "active"
@@ -133,7 +148,7 @@ func receive(message: Dictionary) -> void:
 func game_packet(packet: Dictionary) -> void:
 	if packet.get("type") == "shared_ready":
 		# Emitted only after NativeSharedClient applies the actual snapshot.
-		send({"type":"native_ready", "packet":packet})
+		send({"type":"native_ready", "packet":boundary_packet(packet)})
 	elif packet.get("type") == "native_shared":
 		var input: Dictionary = packet.get("packet", {})
 		if input.get("action") == "input" and active:

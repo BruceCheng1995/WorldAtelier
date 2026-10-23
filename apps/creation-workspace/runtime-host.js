@@ -7,7 +7,7 @@ const storageBridge=parent!==window&&params.get('wa_storage_bridge')==='1';
 const nonce=config.launch_nonce;
 const outbound=new Set(['ready','loaded','world_state','camera','selected','error','runtime_error','native_shared','shared_ready','prefab_test_state','prefab_test_result','play_context','captured_frame']);
 const inbound=new Set(['start','select','camera','world','native_shared','prefab_test','context_request']);
-let frame=null,latest=null,disposed=false,capturing=false;
+let frame=null,latest=null,disposed=false,capturing=false,engineCapture=false;
 const notify=message=>{if(parent!==window)parent.postMessage({source:'world-atelier-game',nonce,...message},config.parent_origin);};
 const identity={source_revision:config.source_revision,canonical_identity:config.canonical_identity,runtime_source_hash:config.runtime_source_hash};
 function failure(message){status.textContent=message;notify({type:'runtime_error',message,...identity});}
@@ -37,7 +37,11 @@ addEventListener('message',async event=>{
       return;
     }
     if(!embedded)return;
-    if(packet.type==='capture_frame'){void capture(packet);return;}
+    if(packet.type==='capture_frame'){
+      if(engineCapture)frame?.contentWindow.postMessage(packet,location.origin);
+      else void capture(packet);
+      return;
+    }
     if(inbound.has(packet.type))frame?.contentWindow.postMessage(packet,location.origin);
     return;
   }
@@ -45,6 +49,7 @@ addEventListener('message',async event=>{
   const packet=event.data;
   if(packet?.source!=='world-atelier-game'||packet.nonce!==nonce||!outbound.has(packet.type))return;
   if(packet.source_revision&&packet.source_revision!==config.source_revision||packet.canonical_identity&&packet.canonical_identity!==config.canonical_identity)return;
+  if(packet.type==='ready')engineCapture=Array.isArray(packet.capabilities)&&packet.capabilities.includes('capture-frame-1');
   if(['loaded','world_state'].includes(packet.type)&&packet.document_id)latest={document_id:packet.document_id,scene_generation:packet.scene_generation,seq:packet.seq};
   if(['loaded','world_state','shared_ready'].includes(packet.type))status.textContent='';
   if(embedded)notify(packet);
