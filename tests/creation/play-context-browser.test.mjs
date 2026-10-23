@@ -82,6 +82,13 @@ document.querySelector('#continue').onclick=()=>openSessionContinuation({session
     const beforeSwitch=f.store.list('creator_play_observation').length;assert.equal(await page.evaluate(()=>window.controller.beforeSend()),null);assert.equal(f.store.list('creator_play_observation').length,beforeSwitch);
     await page.evaluate(old=>window.controller.sent({session_id:old}),f.session.id);assert.equal(await page.locator('[data-play-context-include]').isChecked(),false,'late prior send does not opt in the new session');
     await page.locator('[data-play-context-include]').check();await page.locator('#send').click();await page.waitForFunction(()=>window.sentResult!==null);assert.equal(f.store.list('creator_play_observation').filter(row=>row.session_id===alternate.id).length,1);
+    await page.locator('[data-play-context-range]').selectOption('30');await page.waitForFunction(()=>!window.controller.removalJob);assert.equal(f.store.sessionFor(f.owner,alternate.id).draft_attachments.length,0,'changing the range replaces the prepared clip instead of stacking it');
+    await page.evaluate(()=>{window.delaySnapshot=true;window.deliverSnapshot=null;});const beforeCancel=f.store.list('creator_play_observation').length;
+    await page.locator('#send').click();await page.waitForFunction(()=>window.deliverSnapshot);await page.locator('[data-play-context-include]').uncheck();await page.evaluate(()=>{window.delaySnapshot=false;window.deliverSnapshot();});await page.waitForFunction(()=>!window.controller.captureJob);
+    assert.equal(f.store.list('creator_play_observation').length,beforeCancel,'opting out while capture prepares prevents upload');assert.equal(f.store.sessionFor(f.owner,alternate.id).draft_attachments.length,0);
+    await page.locator('[data-play-context-include]').check();dropCaptureResponse=true;await page.locator('#send').click();await page.waitForFunction(()=>window.uiError);const beforeRecover=f.store.list('creator_play_observation').length;
+    await page.locator('[data-play-context-include]').uncheck();await page.waitForFunction(()=>!window.controller.removalJob&&window.ctx.session.draft_attachments.length===0);
+    assert.equal(f.store.list('creator_play_observation').length,beforeRecover,'unknown upload result is recovered with original id, not recaptured');assert.equal(f.store.sessionFor(f.owner,alternate.id).draft_attachments.length,0,'opting out after lost response removes server-side image and observation attachments');
     assert.deepEqual(errors,[]);await page.evaluate(()=>window.controller.dispose());
   }finally{await browser?.close();await new Promise(resolveClose=>server.close(resolveClose));}
 });

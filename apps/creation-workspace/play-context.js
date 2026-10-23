@@ -23,7 +23,7 @@ export function playRuntimeScope(preview,context,last={}){
 export class PlayContextController {
   constructor({composer,viewport,request,getContext,preview,requestInspect,onSession=()=>{},onError=()=>{}}){
     Object.assign(this,{composer,viewport,request,getContext,preview,requestInspect,onSession,onError});
-    this.buffer=new PlayContextBuffer();this.windowId=randomUUID();this.runtime=null;this.last={};this.included=true;this.sessionBinding=null;this.sessionChanged=false;this.pendingSnapshots=new Map();this.generation=0;this.prepared=null;this.captureJob=null;this.frameJob=null;this.live=null;this.disposed=false;this.focusLayer=null;
+    this.buffer=new PlayContextBuffer();this.windowId=randomUUID();this.runtime=null;this.last={};this.included=true;this.sessionBinding=null;this.sessionChanged=false;this.pendingSnapshots=new Map();this.generation=0;this.prepared=null;this.captureJob=null;this.removalJob=null;this.removalError=null;this.frameJob=null;this.live=null;this.disposed=false;this.focusLayer=null;
     this.chip=el('div','play-context-chip');this.chip.hidden=true;
     const label=el('label','play-context-include');this.checkbox=el('input');this.checkbox.type='checkbox';this.checkbox.checked=true;this.checkbox.dataset.playContextInclude='';label.append(this.checkbox,el('span','','附带试玩过程'));
     this.range=el('select');this.range.dataset.playContextRange='';this.range.setAttribute('aria-label','试玩回溯时长');
@@ -32,8 +32,15 @@ export class PlayContextController {
     this.status=el('span','play-context-status');this.status.setAttribute('aria-live','polite');
     this.chip.append(label,this.range,this.details,this.status);composer.append(this.chip);
     this.focusButton=el('button','play-context-focus-button','指出这里');this.focusButton.type='button';this.focusButton.dataset.playContextFocus='';this.focusButton.hidden=true;this.focusButton.title='暂停个人观察，点选或框出想讨论的画面';viewport.append(this.focusButton);
-    this.checkbox.onchange=()=>{this.included=this.checkbox.checked;this.sessionChanged=false;if(!this.included)this.removePrepared().catch(onError);this.render();};
-    this.range.onchange=()=>{this.buffer.extend(Number(this.range.value));this.prepared=null;this.render();};
+    this.checkbox.onchange=()=>{
+      this.included=this.checkbox.checked;this.sessionChanged=false;
+      if(!this.included){
+        this.removalError=null;const job=this.removePrepared();this.removalJob=job;
+        job.catch(error=>{this.removalError=error;onError(error);}).finally(()=>{if(this.removalJob===job)this.removalJob=null;this.render();});
+      }
+      this.render();
+    };
+    this.range.onchange=()=>{this.buffer.extend(Number(this.range.value));this.replacePrepared();this.render();};
     this.details.onclick=()=>this.review();this.focusButton.onclick=()=>this.focus().catch(onError);
     this.timer=setInterval(()=>{this.update();this.sampleFrame().catch(()=>{});this.poll().catch(error=>{if(this.live){this.live=null;this.status.textContent=error.message;}});},3000);
   }
@@ -53,13 +60,13 @@ export class PlayContextController {
     this.render();
   }
   reset(){
-    this.closeLive();this.generation++;this.runtime=null;this.last={};this.buffer.close();this.prepared=null;this.captureJob=null;this.frameJob=null;this.sessionBinding=null;this.sessionChanged=false;this.closeFocus();
+    this.closeLive();this.generation++;this.runtime=null;this.last={};this.buffer.close();this.prepared=null;this.captureJob=null;this.removalJob=null;this.removalError=null;this.frameJob=null;this.sessionBinding=null;this.sessionChanged=false;this.closeFocus();
     for(const pending of this.pendingSnapshots.values())pending.reject(Error('试玩已停止或切换'));this.pendingSnapshots.clear();
   }
   render(){
     const context=this.getContext(),available=!!this.runtime&&!!context?.can_write&&!!context.session_id;
     this.chip.hidden=!available;this.focusButton.hidden=!this.runtime||!context?.can_write||context.mode_pending;
-    this.checkbox.checked=this.included;this.range.disabled=!this.included||!!this.captureJob;this.details.disabled=!this.buffer.events.length&&!this.buffer.frames.length;
+    this.checkbox.checked=this.included;this.range.disabled=!this.included||!!this.captureJob||!!this.removalJob;this.details.disabled=!this.buffer.events.length&&!this.buffer.frames.length;
     if(available&&!this.captureJob){const seconds=Math.max(0,Math.min(this.buffer.windowSeconds,(performance.now()-this.buffer.started)/1000));this.status.textContent=this.included?`${Math.round(seconds)} 秒可用 · 仅此窗口${this.buffer.gaps.length?' · 有记录缺口':''}`:this.sessionChanged?'会话已切换；勾选后带入当前试玩':'本条消息不附带试玩记录';}
   }
   accept(message){
@@ -129,13 +136,15 @@ export class PlayContextController {
     }finally{live.polling=false;}
   }
   async beforeSend(){
+    if(this.removalJob)await this.removalJob;
+    if(this.removalError){await this.removePrepared();this.removalError=null;}
     this.update();const context=this.getContext(),scope=this.buffer.scope;
     if(!this.runtime||!this.included||!context?.can_write||!context.session_id||!scope)return null;
     const binding=contextKey(context);
     if(this.prepared?.binding===binding){
       if(this.prepared.result){
-        const attached=context.session?.draft_attachments?.some(a=>a.observation_id===this.prepared.result.observation_id);
-        if(context.session&&!attached){this.included=false;this.render();return null;}
+        const attached=context.session?.draft_attachments?.some(a=>a.kind==='play_observation'&&a.observation_id===this.prepared.result.observation_id);
+        if(context.session&&!attached){this.included=false;await this.removePrepared();this.render();return null;}
         return this.prepared.result.session;
       }
     }else this.prepared={binding,requestId:randomUUID(),scope:structuredClone(scope),input:null,result:null};
@@ -146,9 +155,17 @@ export class PlayContextController {
       if(!prepared.input){
         await this.requestSnapshot().catch(()=>{});await this.sampleFrame({force:true}).catch(()=>{});
         if(contextKey(this.getContext())!==binding||!samePlayContext(scope,this.buffer.scope))throw Error('会话、关卡或试玩已变化，请重新发送');
+        if(!this.included){if(this.prepared===prepared)this.prepared=null;this.closeLive();return null;}
+        if(this.prepared!==prepared)throw Error('关注内容已改变，请重新发送以固定新的画面');
         const live=await this.registerLive(context,scope);prepared.input={...this.buffer.freeze({requestId:prepared.requestId}),live_handle:live.handle};
       }
+      if(!this.included){if(this.prepared===prepared)this.prepared=null;this.closeLive();return null;}
       const result=await this.request(`sessions/${encodeURIComponent(context.session_id)}/play-context/captures`,{method:'POST',body:prepared.input,timeoutMs:45000});prepared.result=result;
+      if(!this.included&&contextKey(this.getContext())===binding){
+        if(this.removalJob)await this.removalJob;else await this.removePrepared(prepared,context);
+        return null;
+      }
+      if(this.prepared!==prepared&&contextKey(this.getContext())===binding){if(this.removalJob)await this.removalJob;throw Error('附带范围或关注画面已改变，请重新发送');}
       if(contextKey(this.getContext())===binding)this.onSession(result.session);
       return result.session;
     })();this.captureJob=job;this.render();
@@ -156,11 +173,22 @@ export class PlayContextController {
   }
   sent({session_id=null}={}){if(session_id&&this.getContext()?.session_id!==session_id)return;this.prepared=null;this.included=true;this.sessionChanged=false;this.checkbox.checked=true;this.render();}
   allowCurrentSession(){this.update();this.prepared=null;this.included=true;this.sessionChanged=false;this.render();}
-  async removePrepared(){
-    const prepared=this.prepared,context=this.getContext();if(!prepared?.result||prepared.binding!==contextKey(context))return;
-    const attachments=context.session?.draft_attachments??prepared.result.session.draft_attachments;
+  replacePrepared(){
+    if(!this.prepared)return;
+    if(!this.prepared.input&&!this.prepared.result){this.prepared=null;return;}
+    this.removalError=null;const job=this.removePrepared();this.removalJob=job;
+    job.catch(error=>{this.removalError=error;this.onError(error);}).finally(()=>{if(this.removalJob===job)this.removalJob=null;this.render();});
+  }
+  async removePrepared(prepared=this.prepared,context=this.getContext()){
+    if(!prepared||prepared.binding!==contextKey(context))return;
+    // An interrupted upload response is an unknown result. Recover the original
+    // idempotent request before removing it, so unchecked UI cannot leave hidden
+    // server-side observation/image attachments in the next message.
+    if(!prepared.result&&prepared.input)prepared.result=await this.request(`sessions/${encodeURIComponent(context.session_id)}/play-context/captures`,{method:'POST',body:prepared.input});
+    if(!prepared.result)return;
+    const current=await this.request(`sessions/${encodeURIComponent(context.session_id)}`),attachments=current.draft_attachments??[];
     for(const attachment of attachments.filter(a=>a.observation_id===prepared.result.observation_id))await this.request(`sessions/${encodeURIComponent(context.session_id)}/attachments/${encodeURIComponent(attachment.id)}`,{method:'DELETE'});
-    const updated=await this.request(`sessions/${encodeURIComponent(context.session_id)}`);if(contextKey(this.getContext())===prepared.binding)this.onSession(updated);this.prepared=null;
+    const updated=await this.request(`sessions/${encodeURIComponent(context.session_id)}`);if(contextKey(this.getContext())===prepared.binding)this.onSession(updated);if(this.prepared===prepared)this.prepared=null;
   }
   async focus(frame=null){
     this.update();if(!this.runtime)throw Error('先运行游戏，再指出希望讨论的内容');
@@ -185,7 +213,7 @@ export class PlayContextController {
       if(!start)return;event.preventDefault();event.stopPropagation();const end=point(event),rect=[Math.min(start[0],end[0]),Math.min(start[1],end[1]),Math.abs(end[0]-start[0]),Math.abs(end[1]-start[1])],isPoint=rect[2]+rect[3]<.015;
       const candidates=projectedFocusCandidates(frame,isPoint?{point:end}:{rect});
       this.buffer.setFocus({kind:isPoint?'screen_point':'screen_region',...(isPoint?{point:end}:{rect}),runtime_ids:candidates.map(row=>row.runtime_id),frame_id:frame.id,at_ms:frame.at_ms,resource_id:frame.resource_id,scene_generation:frame.scene_generation});
-      this.prepared=null;this.included=true;this.sessionChanged=false;this.closeFocus();this.render();this.status.textContent=`已固定关注画面${candidates.length?` · ${candidates.length} 个可能相关对象`:' · 屏幕区域'}，随消息发送`;
+      this.replacePrepared();this.included=true;this.sessionChanged=false;this.closeFocus();this.render();this.status.textContent=`已固定关注画面${candidates.length?` · ${candidates.length} 个可能相关对象`:' · 屏幕区域'}，随消息发送`;
     };
     layer.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.closeFocus();}};
   }

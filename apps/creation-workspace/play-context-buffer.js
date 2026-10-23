@@ -1,4 +1,4 @@
-import {PLAY_CONTEXT_PROTOCOL,PLAY_CONTEXT_LIMITS,samePlayContext,playFocus,playContextBytes,summarizePlayCapture,observationValue} from '../../packages/contracts/play-context.mjs';
+import {PLAY_CONTEXT_PROTOCOL,PLAY_CONTEXT_LIMITS,samePlayContext,playFocus,playContextBytes,summarizePlayCapture,observationValue,playEventPayload} from '../../packages/contracts/play-context.mjs';
 
 const copy=value=>structuredClone(value);
 const keyOf=scope=>scope&&[scope.project_id,scope.branch_id,scope.source_revision,scope.build_id,scope.runtime_instance_id,scope.canonical_identity??'',scope.world_id??'',scope.epoch??'',scope.session_kind??''].join('/');
@@ -49,7 +49,7 @@ export class PlayContextBuffer {
     if(!this.matches(scope)||!input||typeof input.kind!=='string')return false;
     if(at<this.lastSeen-1000){this.gap('out_of_order_event');return false;}
     at=Math.max(this.lastSeen,at);this.lastSeen=at;
-    let payload;try{payload=observationValue(input.payload??{});}catch{this.gap('invalid_event_payload',{},at);return false;}
+    let payload;try{payload=playEventPayload(input.kind,input.payload);}catch{this.gap('invalid_event_payload',{},at);return false;}
     if(input.kind.length>64||typeof input.source==='string'&&input.source.length>64){this.gap('invalid_event_payload',{},at);return false;}
     const event={id:`event-${++this.serial}`,at_ms:at,kind:input.kind,source:input.source??'client_viewport',
       resource_id:input.resource_id??scope.resource_id,scene_generation:input.scene_generation??scope.scene_generation,payload,

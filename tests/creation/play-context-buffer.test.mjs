@@ -68,3 +68,8 @@ test('unsynchronized live and delayed frames keep screen intent without guessing
   const matched=buffer.addFrame({data_url:'data:image/png;base64,YQ==',mode:'play',tick:4});assert.equal(matched.projection.synchronized,true);
   set(900);const late=buffer.addFrame({data_url:'data:image/png;base64,YQ==',mode:'play',tick:4});assert.equal(late.projection.synchronized,false);
 });
+test('text input body and composition data never enter the local record or normalized upload',()=>{
+  const {buffer,set}=fixture();set(10);buffer.record({kind:'text_input',source:'user_input',payload:{field_type:'LineEdit',runtime_id:'text-field',text:'private body',unicode:97,composition:'private composition'}});
+  assert.deepEqual(buffer.events[0].payload,{field_type:'LineEdit',runtime_id:'text-field',redacted:true});
+  const capture=buffer.freeze({requestId:'redacted'});capture.events[0].payload.text='injected';assert.equal(normalizePlayCapture(capture).events[0].payload.text,undefined);
+});

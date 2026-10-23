@@ -30,6 +30,10 @@ export function observationValue(value,depth=0){
   }
   return result;
 }
+export function playEventPayload(kind,value){
+  if(kind==='text_input')return {redacted:true,...(typeof value?.field_type==='string'?{field_type:value.field_type.slice(0,80)}:{}),...(typeof value?.runtime_id==='string'?{runtime_id:playContextId(value.runtime_id)}:{})};
+  return observationValue(value??{});
+}
 
 export function playContextScope(value){
   if(!plain(value))fail('缺少固定运行身份');
@@ -89,7 +93,7 @@ export function normalizePlayCapture(input){
       source:['user_input','engine_observation','author_reported','client_viewport'].includes(event.source)?event.source:'client_viewport',
       ...(event.resource_id?{resource_id:playContextId(event.resource_id)}:{}),
       ...(event.scene_generation!=null?{scene_generation:number(event.scene_generation,0,1e9,'事件场景代次')}:{}),
-      ...(event.sequence!=null?{sequence:number(event.sequence,0,1e12,'事件序号')}:{}),payload:observationValue(event.payload??{})};
+      ...(event.sequence!=null?{sequence:number(event.sequence,0,1e12,'事件序号')}:{}),payload:playEventPayload(event.kind,event.payload)};
   });
   const {objects:_objects,...snapshotFields}=input.snapshot??{};
   const snapshot=observationValue(snapshotFields);
