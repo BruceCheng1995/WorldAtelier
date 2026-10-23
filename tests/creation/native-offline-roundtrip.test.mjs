@@ -14,7 +14,7 @@ import {NativeWorkspaceClient,nativeWorkspaceApi} from '../../tools/native-works
 import {prepareExecutionEnvironment} from '../../services/creation/execution-environment.mjs';
 import {nativeWorkspaceRetention} from '../../tools/native-workspace-retention.mjs';
 
-const ROOT=resolve(import.meta.dirname,'../..'),PORT=49031;
+const ROOT=resolve(import.meta.dirname,'../..'),PORT=48921;
 const scene='[gd_scene format=3]\n\n[node name="Root" type="Node3D"]\nmetadata/wa_node_id = "root"\nvisible = true\nprocess_priority = 0\n\n[node name="Child" type="Node3D" parent="."]\nmetadata/wa_node_id = "child"\nvisible = true\n';
 
 // Real HTTP, SQLite, immutable blobs and filesystem recovery. The controllable
