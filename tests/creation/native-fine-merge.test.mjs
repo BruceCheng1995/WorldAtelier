@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {NativeSourceArchive,NATIVE_SCHEMA,nativeSourceIdentity} from '../../services/creation/native-source.mjs';
@@ -30,6 +30,89 @@ test('different native properties merge without serializing unknown source or fl
   const result=mergeNativeFiles({base,source,target,archive});assert.equal(result.unresolved.length,0);assert.equal(result.statistics.native_merges,1);
   assert.equal(resultText(archive,result),scene.replace('position = Vector3(1, 2, 3)','position = Vector3(-1, 2, 3)').replace('visible = true','visible = false'));
   assert.deepEqual(result.files['unknown.bin'],base['unknown.bin']);
+});
+
+const orderedScene=body=>'[gd_scene format=3]\n[node name="Root" type="Node"]\nmetadata/wa_node_id = "root"\n'+body;
+const rootOrder=text=>parseNativeText(text).byKey.get('node/[[],"root"]').parsed.order;
+
+test('distinct property insertions in the same gap preserve both adjacency chains and raw unknown tokens',t=>{
+  const {archive,manifest}=archiveFixture(t),body='first = 1\r\nlast = {\r\n"future": [1, 2, 3]\r\n}\r\n';
+  const source=body.replace('last =','; source comment\r\nnew_source = "a;b=c"\r\nlast ='),target=body.replace('last =','; target comment\r\nnew_target = 9\r\nlast =');
+  const input={base:manifest({'scene.tscn':orderedScene(body)}),source:manifest({'scene.tscn':orderedScene(source)}),target:manifest({'scene.tscn':orderedScene(target)}),archive};
+  const result=mergeNativeFiles(input),text=resultText(archive,result);assert.equal(result.unresolved.length,0);
+  assert.deepEqual(rootOrder(text),['metadata/wa_node_id','first','new_target','new_source','last']);
+  assert.ok(text.includes('; source comment\r\nnew_source = "a;b=c"\r\n'));assert.ok(text.includes('; target comment\r\nnew_target = 9\r\n'));assert.ok(text.includes('last = {\r\n"future": [1, 2, 3]\r\n}\r\n'));
+  assert.equal(resultText(archive,mergeNativeFiles(input)),text);
+});
+
+test('shared additions with compatible subsequences keep every side ordering constraint',t=>{
+  const {archive,manifest}=archiveFixture(t),body='first = 1\nlast = 2\n',source=body.replace('last =','left = 3\ncommon = 4\nsource_tail = 5\nlast ='),target=body.replace('last =','target_head = 6\ncommon = 4\nright = 7\nlast =');
+  const result=mergeNativeFiles({base:manifest({'scene.tscn':orderedScene(body)}),source:manifest({'scene.tscn':orderedScene(source)}),target:manifest({'scene.tscn':orderedScene(target)}),archive});
+  assert.equal(result.unresolved.length,0);const order=rootOrder(resultText(archive,result));
+  for(const sequence of [['first','left','common','source_tail','last'],['first','target_head','common','right','last']])for(let i=1;i<sequence.length;i++)assert.ok(order.indexOf(sequence[i-1])<order.indexOf(sequence[i]),sequence.join(' -> '));
+});
+
+test('shared new property at incompatible old anchors and shared new properties in opposite orders stay explicit',t=>{
+  const {archive,manifest}=archiveFixture(t),base=orderedScene('first = 1\nlast = 2\n');
+  for(const [source,target]of [
+    [orderedScene('first = 1\nshared = 3\nlast = 2\n'),orderedScene('shared = 3\nfirst = 1\nlast = 2\n')],
+    [orderedScene('first = 1\none = 3\ntwo = 4\nlast = 2\n'),orderedScene('first = 1\ntwo = 4\none = 3\nlast = 2\n')],
+  ]){
+    const input={base:manifest({'scene.tscn':base}),source:manifest({'scene.tscn':source}),target:manifest({'scene.tscn':target}),archive},plan=mergeNativeFiles(input);
+    assert.equal(plan.unresolved.length,1);assert.equal(plan.unresolved[0].kind,'order');assert.ok(plan.unresolved[0].key.includes('/property-order@'));
+    const resolved=mergeNativeFiles({...input,resolutions:{[plan.unresolved[0].key]:'source'}});assert.equal(resolved.unresolved.length,0);assert.equal(resultText(archive,resolved),source);
+  }
+});
+
+test('incompatible old-property reorderings remain conflicts and one-sided reorderings keep compatible new anchors',t=>{
+  const {archive,manifest}=archiveFixture(t),base=orderedScene('a = 1\nb = 2\nc = 3\n'),source=orderedScene('b = 2\na = 1\nc = 3\n'),target=orderedScene('a = 1\nc = 3\nb = 2\n');
+  const plan=mergeNativeFiles({base:manifest({'scene.tscn':base}),source:manifest({'scene.tscn':source}),target:manifest({'scene.tscn':target}),archive});
+  assert.equal(plan.unresolved.length,1);assert.equal(plan.unresolved[0].kind,'order');
+  const compatible=mergeNativeFiles({base:manifest({'scene.tscn':base}),source:manifest({'scene.tscn':source}),target:manifest({'scene.tscn':base+'tail = 4\n'}),archive});
+  assert.equal(compatible.unresolved.length,0);assert.deepEqual(rootOrder(resultText(archive,compatible)),['metadata/wa_node_id','b','a','c','tail']);
+  const incompatible=mergeNativeFiles({base:manifest({'scene.tscn':base}),source:manifest({'scene.tscn':source}),target:manifest({'scene.tscn':orderedScene('a = 1\nnew = 4\nb = 2\nc = 3\n')}),archive});
+  assert.equal(incompatible.unresolved.length,1);assert.equal(incompatible.unresolved[0].kind,'order');
+});
+
+test('independent node and resource-section additions in the same gap retain explicit order decisions',t=>{
+  const {archive,manifest}=archiveFixture(t),base=orderedScene('value = 1\n');
+  const child=(name,id)=>`[node name="${name}" type="Node" parent="."]\nmetadata/wa_node_id = "${id}"\n`;
+  for(const [source,target]of [
+    [base+child('Source','source-child'),base+child('Target','target-child')],
+    [base.replace('[node','[ext_resource type="Script" path="res://source.gd" id="source-script"]\n[node'),base.replace('[node','[ext_resource type="Script" path="res://target.gd" id="target-script"]\n[node')],
+  ]){
+    const input={base:manifest({'scene.tscn':base}),source:manifest({'scene.tscn':source}),target:manifest({'scene.tscn':target}),archive},plan=mergeNativeFiles(input);
+    assert.equal(plan.unresolved.length,1);assert.equal(plan.unresolved[0].kind,'order');assert.ok(plan.unresolved[0].key.includes('/section-order@'));
+    const resolved=mergeNativeFiles({...input,resolutions:{[plan.unresolved[0].key]:'target'}});assert.equal(resolved.unresolved.length,0);
+    const keys=new Set(parseNativeText(resultText(archive,resolved)).sections.map(section=>section.key));
+    for(const text of [source,target])for(const section of parseNativeText(text).sections)assert.ok(keys.has(section.key));
+  }
+});
+
+test('many independent property additions retain all properties and within-side order',t=>{
+  const {archive,manifest}=archiveFixture(t),count=1500,base=orderedScene('first = 1\nlast = 2\n');
+  const additions=prefix=>Array.from({length:count},(_,index)=>`${prefix}_${index} = ${index}\n`).join('');
+  const result=mergeNativeFiles({base:manifest({'scene.tscn':base}),source:manifest({'scene.tscn':base.replace('last =',additions('source')+'last =')}),target:manifest({'scene.tscn':base.replace('last =',additions('target')+'last =')}),archive});
+  assert.equal(result.unresolved.length,0);const order=rootOrder(resultText(archive,result));assert.equal(order.length,count*2+3);
+  for(const prefix of ['source','target'])assert.deepEqual(order.filter(key=>key.startsWith(prefix+'_')),Array.from({length:count},(_,index)=>prefix+'_'+index));
+  assert.equal(order[0],'metadata/wa_node_id');assert.equal(order[1],'first');assert.equal(order.at(-1),'last');
+});
+
+test('actual Godot-normalized MU source bytes need only the intentional counter decision',t=>{
+  const {archive,manifest}=archiveFixture(t),fixture=JSON.parse(readFileSync(new URL('./fixtures/native-order-godot-normalized.json',import.meta.url),'utf8'));
+  const versions=Object.fromEntries(Object.entries(fixture.versions).map(([side,value])=>{const entry=archive.put(value.text);assert.equal(entry.hash,value.sha256);assert.equal(entry.size,value.size);return[side,{[fixture.source_path]:entry}];}));
+  const first=mergeNativeFiles({base:versions.base,source:versions.logic,target:versions.target,archive,prefix:'branch/candidate-logic'});assert.equal(first.unresolved.length,0);
+  const input={base:versions.base,source:versions.art,target:first.files,archive,prefix:'branch/candidate-art'},plan=mergeNativeFiles(input);
+  assert.equal(plan.unresolved.length,1);assert.equal(plan.unresolved[0].kind,'property');assert.equal(plan.unresolved[0].property,'counter_step');assert.equal(plan.unresolved[0].base,null);
+  const result=mergeNativeFiles({...input,resolutions:{[plan.unresolved[0].key]:{choice:'manual',text:'counter_step = 7\n'}}});assert.equal(result.unresolved.length,0);
+  const text=resultText(archive,result,fixture.source_path),parsed=parseNativeText(text),root=parsed.byKey.get('node/[[],"world-root"]');
+  for(const [name,value]of [['counter_step','7'],['allow_open','true'],['metadata/target_note','"target-only"'],['metadata/art_note','"source-art"']])assert.equal(root.parsed.properties.get(name).value,value);
+  const original=parseNativeText(fixture.versions.base.text);
+  for(const section of original.sections)if(section.key!==root.key)assert.equal(parsed.byKey.get(section.key).raw,section.raw);
+  for(const property of ['metadata/author_note','metadata/wa_shared','metadata/wa_shared_keys'])assert.equal(root.parsed.properties.get(property).raw,original.byKey.get(root.key).parsed.properties.get(property).raw);
+  const withLater=text.replace(root.raw,root.raw+'metadata/later_note = "retained"\n'),reverted=mergeNativeFiles({base:result.files,source:versions.target,target:manifest({[fixture.source_path]:withLater}),archive});
+  assert.equal(reverted.unresolved.length,0);const expected=fixture.versions.target.text.replace(parseNativeText(fixture.versions.target.text).byKey.get(root.key).raw,parseNativeText(fixture.versions.target.text).byKey.get(root.key).raw+'metadata/later_note = "retained"\n');
+  assert.equal(resultText(archive,reverted,fixture.source_path),expected);
 });
 
 test('same native property creates local stable conflict; resolving it retains unrelated edits',t=>{

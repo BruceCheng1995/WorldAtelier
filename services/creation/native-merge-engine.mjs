@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {fail,hash,stable} from './schema.mjs';
 import {nativeFileMap,nativeSourceIdentity} from './native-source.mjs';
 
-export const NATIVE_MERGE_ALGORITHM='native-source-merge-2';
+export const NATIVE_MERGE_ALGORITHM='native-source-merge-3';
 const TEXT_LIMIT=2*1024*1024,VALUE_PREVIEW=16000,PARSE_CACHE_LIMIT=128,PARSE_CACHE_BYTES=16*1024*1024;
 const parsedCache=new Map();let parsedCacheBytes=0;
 const binaryPath=path=>/\.(?:bin|scn|res|glb|png|jpe?g|webp|gif|bmp|tiff?|psd|blend|fbx|ttf|otf|woff2?|wav|ogg|mp3|flac|mp4|webm|pck|zip|wasm|dll|so|dylib)$/i.test(path);
@@ -175,22 +175,52 @@ export function parseNativeText(text){
   const bytes=result?Buffer.byteLength(text):64;parsedCache.set(digest,{result,bytes});parsedCacheBytes+=bytes;while(parsedCache.size>PARSE_CACHE_LIMIT||parsedCacheBytes>PARSE_CACHE_BYTES){const key=parsedCache.keys().next().value;parsedCacheBytes-=parsedCache.get(key).bytes;parsedCache.delete(key);}return result;
 }
 
-function mergedOrder(base,source,target,present,context,local,path){
-  const surviving=list=>list.filter(key=>present.has(key)),b=surviving(base),s=surviving(source),t=surviving(target);
-  const old=new Set(base),oldS=s.filter(key=>old.has(key)),oldT=t.filter(key=>old.has(key)),sSet=new Set(oldS),tSet=new Set(oldT),oldB=b.filter(key=>sSet.has(key)&&tSet.has(key)),commonSet=new Set(oldB);
-  const sCommon=oldS.filter(key=>commonSet.has(key)),tCommon=oldT.filter(key=>commonSet.has(key));
-  const additions=sequence=>{const groups=new Map(),following=new Array(sequence.length);let next='',before='';for(let i=sequence.length-1;i>=0;i--){following[i]=next;if(old.has(sequence[i]))next=sequence[i];}for(let i=0;i<sequence.length;i++){if(old.has(sequence[i])){before=sequence[i];continue;}const gap=JSON.stringify([before,following[i]]);if(!groups.has(gap))groups.set(gap,[]);groups.get(gap).push(sequence[i]);}return groups;};
-  const sourceAdditions=additions(s),targetAdditions=additions(t);
-  const additionCollision=[...sourceAdditions].some(([gap,values])=>targetAdditions.has(gap)&&!equal(values,targetAdditions.get(gap)));
-  let preferred=t;
-  if(additionCollision||!equal(sCommon,oldB)&&!equal(tCommon,oldB)&&!equal(sCommon,tCommon)){
-    const selected=context.choose(local,base.join('\n'),source.join('\n'),target.join('\n'),{kind:'order',path,note:'排序选择不删除另一侧新增内容；未列出的新增项按原邻接位置补入'},false);preferred=selected.split('\n').filter(key=>present.has(key));
-  }else if(!equal(sCommon,oldB))preferred=s;
+function completeOrder(preferred,sequences){
   const nodes=new Map();let first=null,last=null;
   const insert=(key,next=null)=>{if(nodes.has(key))return;const previous=next===null?last:nodes.get(next).previous;nodes.set(key,{previous,next});if(previous===null)first=key;else nodes.get(previous).next=key;if(next===null)last=key;else nodes.get(next).previous=key;};
   for(const key of preferred)insert(key);
-  for(const sequence of [s,t,b]){let next=null;for(let i=sequence.length-1;i>=0;i--){const key=sequence[i];if(!nodes.has(key))insert(key,next);next=key;}}
+  for(const sequence of sequences){let next=null;for(let i=sequence.length-1;i>=0;i--){const key=sequence[i];if(!nodes.has(key))insert(key,next);next=key;}}
   const output=[];for(let key=first;key!==null;key=nodes.get(key).next)output.push(key);return output;
+}
+
+/** Property insertions have a partial order, unlike scene sections/nodes. Keep
+ * the chosen old-property order and every side's adjacency involving a new
+ * property. Distinct additions in one gap commute only when those constraints
+ * are acyclic. Shared additions in opposite orders or different anchored gaps
+ * still conflict. Raw property tokens are never rewritten by this operation. */
+function insertedPropertyOrder(old,source,target,preferred){
+  const rank=new Map(preferred.map((key,index)=>[key,index])),edges=new Map(preferred.map(key=>[key,new Set()])),incoming=new Map(preferred.map(key=>[key,0]));
+  const before=(a,b)=>{if(a===b||edges.get(a).has(b))return;edges.get(a).add(b);incoming.set(b,incoming.get(b)+1);};
+  const existing=preferred.filter(key=>old.has(key));for(let i=1;i<existing.length;i++)before(existing[i-1],existing[i]);
+  for(const sequence of [source,target])for(let i=1;i<sequence.length;i++)if(!old.has(sequence[i-1])||!old.has(sequence[i]))before(sequence[i-1],sequence[i]);
+  // Stable priority queue avoids quadratic sorting for large native resources.
+  const ready=[];
+  const push=key=>{let i=ready.length;ready.push(key);while(i){const parent=(i-1)>>1;if(rank.get(ready[parent])<=rank.get(key))break;ready[i]=ready[parent];i=parent;}ready[i]=key;};
+  const pop=()=>{const first=ready[0],last=ready.pop();if(ready.length){let i=0;while(i*2+1<ready.length){let child=i*2+1;if(child+1<ready.length&&rank.get(ready[child+1])<rank.get(ready[child]))child++;if(rank.get(last)<=rank.get(ready[child]))break;ready[i]=ready[child];i=child;}ready[i]=last;}return first;};
+  for(const key of preferred)if(incoming.get(key)===0)push(key);
+  const output=[];while(ready.length){const key=pop();output.push(key);for(const next of edges.get(key)){incoming.set(next,incoming.get(next)-1);if(incoming.get(next)===0)push(next);}}
+  return output.length===preferred.length?output:null;
+}
+
+function mergedOrder(base,source,target,present,context,local,path,scope='sections'){
+  const surviving=list=>list.filter(key=>present.has(key)),b=surviving(base),s=surviving(source),t=surviving(target);
+  const old=new Set(base),oldS=s.filter(key=>old.has(key)),oldT=t.filter(key=>old.has(key)),sSet=new Set(oldS),tSet=new Set(oldT),oldB=b.filter(key=>sSet.has(key)&&tSet.has(key)),commonSet=new Set(oldB);
+  const sCommon=oldS.filter(key=>commonSet.has(key)),tCommon=oldT.filter(key=>commonSet.has(key));
+  const oldCollision=!equal(sCommon,oldB)&&!equal(tCommon,oldB)&&!equal(sCommon,tCommon);
+  let preferred=!equal(sCommon,oldB)?s:t,additionCollision=false;
+  if(scope==='properties'&&!oldCollision){
+    const order=insertedPropertyOrder(old,s,t,completeOrder(preferred,[s,t,b]));
+    if(order)return order;
+    additionCollision=true;
+  }else if(scope!=='properties'){
+    const additions=sequence=>{const groups=new Map(),following=new Array(sequence.length);let next='',before='';for(let i=sequence.length-1;i>=0;i--){following[i]=next;if(old.has(sequence[i]))next=sequence[i];}for(let i=0;i<sequence.length;i++){if(old.has(sequence[i])){before=sequence[i];continue;}const gap=JSON.stringify([before,following[i]]);if(!groups.has(gap))groups.set(gap,[]);groups.get(gap).push(sequence[i]);}return groups;};
+    const sourceAdditions=additions(s),targetAdditions=additions(t);
+    additionCollision=[...sourceAdditions].some(([gap,values])=>targetAdditions.has(gap)&&!equal(values,targetAdditions.get(gap)));
+  }
+  if(additionCollision||oldCollision){
+    const selected=context.choose(local,base.join('\n'),source.join('\n'),target.join('\n'),{kind:'order',path,note:'排序选择不删除另一侧新增内容；未列出的新增项按原邻接位置补入'},false);preferred=selected.split('\n').filter(key=>present.has(key));
+  }
+  return completeOrder(preferred,[s,t,b]);
 }
 
 function mergeNativeStructured(baseText,sourceText,targetText,{context,local,path}){
@@ -242,7 +272,7 @@ function mergeNativeStructured(baseText,sourceText,targetText,{context,local,pat
           for(const name of parsed.order)props.set(name,parsed.properties.get(name).raw);
         }
         for(const name of names){if(spatial.includes(name))continue;const prop=[b,s,t].map(section=>section.parsed.properties.get(name)?.raw??null);const v=scalar(...prop,context,local+'/'+encodeURIComponent(key)+'/property/'+encodeURIComponent(name),{kind:'property',path,section:key,property:name});if(v!==null)props.set(name,v);}
-        const order=mergedOrder(b.parsed.order,s.parsed.order,t.parsed.order,new Set(props.keys()),context,local+'/'+encodeURIComponent(key)+'/property-order',path);
+        const order=mergedOrder(b.parsed.order,s.parsed.order,t.parsed.order,new Set(props.keys()),context,local+'/'+encodeURIComponent(key)+'/property-order',path,'properties');
         value=heading+order.map(name=>props.get(name)).join('')+scalar(b.parsed.tail,s.parsed.tail,t.parsed.tail,context,local+'/'+encodeURIComponent(key)+'/trivia',{kind:'text',path,section:key});
       }
     }
