@@ -101,6 +101,35 @@ func _ready():
 \tcheck(runtime.debug.outbound_log.size()==count,"stale generation rejected")
 \truntime.debug.capture_frame({"type":"capture_frame","request_id":"headless","seq":runtime.debug.seq,"document_id":runtime.debug.document_id,"scene_generation":runtime.generation})
 \tcheck(runtime.debug.outbound_log.any(func(e): return e.get("type")=="captured_frame" and e.has("error")),"headless capture fails without hanging")
+\t# Actual wide live tree: the observer must never enqueue all children first.
+\tvar wide = Node.new()
+\twide.name = "WideRuntimeSubtree"
+\tscene.add_child(wide)
+\tfor index in 6000:
+\t\tvar child = Node.new()
+\t\tchild.name = "Child"+str(index)
+\t\twide.add_child(child)
+\tvar metadata = {}
+\tfor index in 1000: metadata["field"+str(index)] = "x".repeat(1000)
+\tspawned.set_meta("wa_observation", metadata)
+\t# These extra facade entries are a budget fixture referencing real nodes;
+\t# they do not claim source identity or fabricate runtime/authority ACKs.
+\tvar original_objects = runtime.projection.objects.duplicate()
+\tvar original_definitions = runtime.projection.definitions.duplicate()
+\tfor index in 3000:
+\t\tvar index_key = "budget-probe-"+str(index)
+\t\truntime.projection.objects[index_key] = wide.get_child(index)
+\t\truntime.projection.definitions[index_key] = {}
+\truntime.debug.outbound_log.clear()
+\tvar bounded = snapshot(runtime)
+\tcheck(bounded.payload.scanned_nodes<=2048 and bounded.payload.maximum_pending_nodes<=2048,"wide tree queue and scan stay bounded")
+\tcheck(bounded.payload.indexed_nodes<=2048 and bounded.payload.index_truncated,"source facade indexing stays bounded")
+\tcheck(bounded.payload.objects.size()<=256 and bounded.payload.truncated,"node observation budget explicit")
+\tcheck(not bounded.payload.input_regions_complete,"incomplete text mask scan rejects automatic screenshots")
+\tcheck(bounded.payload.observation_bytes<=192*1024 and JSON.stringify(bounded.payload).to_utf8_buffer().size()<208*1024,"payload and metadata budgets")
+\tcheck(spawned.getter_reads==0,"wide observation still never invokes script getters")
+\truntime.projection.objects=original_objects
+\truntime.projection.definitions=original_definitions
 \tprint("PLAY_CONTEXT_ENGINE_OK "+JSON.stringify({"checks":checks,"source_revision":runtime.release.revision,"runtime_source_hash":runtime.release.runtime_source_hash,"objects":first.payload.objects.size()}))
 \tget_tree().quit(0)
 `);

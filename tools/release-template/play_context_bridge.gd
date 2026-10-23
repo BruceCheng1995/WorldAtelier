@@ -4,6 +4,8 @@ extends Node
 const PROTOCOL = "wa-play-context-1"
 const MAX_NODES = 256
 const MAX_SCAN = 2048
+const MAX_NODE_BYTES = 8192
+const MAX_SNAPSHOT_BYTES = 192 * 1024
 var runtime: Node
 var debug: Node
 var sequence = 0
@@ -15,6 +17,7 @@ var last_mode = ""
 var last_fault = ""
 var enabled = false
 var snapshot_busy = false
+var safe_remaining = 0
 
 func setup(owner_runtime: Node, owner_debug: Node) -> void:
 	runtime = owner_runtime
@@ -109,14 +112,23 @@ func snapshot(request_id: String = "") -> void:
 	var scene: Node = runtime.game_scene if is_instance_valid(runtime.game_scene) else get_tree().current_scene
 	var objects: Array = []
 	var indexed: Dictionary = {}
+	var indexed_examined = 0
+	var index_truncated = false
 	if is_instance_valid(runtime.projection):
 		for key in runtime.projection.objects:
+			if indexed_examined >= MAX_SCAN:
+				index_truncated = true
+				break
+			indexed_examined += 1
 			var indexed_node = runtime.projection.objects[key]
 			if is_instance_valid(indexed_node): indexed[indexed_node.get_instance_id()] = runtime.projection.definitions.get(key, {})
 	var queue: Array = [{"node":scene, "prefab":""}] if is_instance_valid(scene) else []
 	var scanned = 0
 	var input_regions: Array = []
 	var objects_truncated = false
+	var scan_overflow = false
+	var maximum_pending = queue.size()
+	var observation_bytes = 0
 	while not queue.is_empty() and scanned < MAX_SCAN:
 		var entry: Dictionary = queue.pop_front()
 		var node: Node = entry.node
@@ -128,15 +140,32 @@ func snapshot(request_id: String = "") -> void:
 			if node.is_visible_in_tree():
 				var input_bounds = _screen_bounds(node)
 				if not input_bounds.is_empty(): input_regions.append(input_bounds)
-		if objects.size() < MAX_NODES: objects.append(_observe_node(node, scene, indexed.get(node.get_instance_id(), {}), prefab))
+		if objects.size() < MAX_NODES and not objects_truncated:
+			var observed = _observe_node(node, scene, indexed.get(node.get_instance_id(), {}), prefab)
+			var bytes = JSON.stringify(observed).to_utf8_buffer().size()
+			if bytes > MAX_NODE_BYTES:
+				observed.erase("observed_values")
+				observed["observation_truncated"] = true
+				bytes = JSON.stringify(observed).to_utf8_buffer().size()
+			if observation_bytes + bytes <= MAX_SNAPSHOT_BYTES:
+				objects.append(observed)
+				observation_bytes += bytes
+			else: objects_truncated = true
 		else: objects_truncated = true
-		for child in node.get_children(): queue.append({"node":child, "prefab":prefab})
+		# A wide parent cannot allocate an unbounded temporary child queue. Inspect
+		# at most the remaining scan budget using get_child(), not get_children().
+		var room = maxi(0, MAX_SCAN - scanned - queue.size())
+		var child_count = node.get_child_count()
+		if child_count > room: scan_overflow = true
+		for child_index in mini(child_count, room): queue.append({"node":node.get_child(child_index), "prefab":prefab})
+		maximum_pending = maxi(maximum_pending, queue.size())
 	var camera = get_viewport().get_camera_3d()
 	var camera_data: Dictionary = {"dimension":"2d", "viewport_size":[get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y]}
 	if is_instance_valid(camera):
 		camera_data = {"dimension":"3d", "position":_vec3(camera.global_position), "projection":"perspective" if camera.projection == Camera3D.PROJECTION_PERSPECTIVE else "orthographic", "fov":camera.fov, "size":camera.size, "near":camera.near, "far":camera.far, "viewport_size":[get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y]}
-	_emit("snapshot", {"objects":objects, "camera":camera_data, "truncated":objects_truncated or not queue.is_empty(), "scanned_nodes":scanned,
-		"text_input_regions":input_regions.slice(0,64), "input_regions_complete":queue.is_empty() and input_regions.size() <= 64,
+	_emit("snapshot", {"objects":objects, "camera":camera_data, "truncated":objects_truncated or scan_overflow or not queue.is_empty(), "scanned_nodes":scanned,
+		"maximum_pending_nodes":maximum_pending,"indexed_nodes":indexed.size(),"index_truncated":index_truncated,"observation_bytes":observation_bytes,
+		"text_input_regions":input_regions.slice(0,64), "input_regions_complete":not scan_overflow and queue.is_empty() and input_regions.size() <= 64,
 		"scene_generation":runtime.generation, "resource_id":runtime.current_scene_id, "mode":"inspect" if debug.inspecting else "play", "runtime_fault":str(runtime.failure).left(2000),
 		"observation_policy":"Built-in spatial/UI values and explicit wa_observation metadata only; no arbitrary author methods or script-property getters."}, request_id)
 	snapshot_busy = false
@@ -146,9 +175,12 @@ func _observe_node(node: Node, scene: Node, source: Dictionary, prefab: String) 
 		"native_node_path":str(scene.get_path_to(node)).left(512), "parent_runtime_id":_node_id(node.get_parent()) if node != scene and is_instance_valid(node.get_parent()) else null,
 		"source":{}, "mapping":"runtime_only", "visible":true}
 	if not source.is_empty() and source.get("address") is Dictionary:
-		result.source = {"address":source.address.duplicate(true), "object_version":source.get("object_version", source.get("version", ""))}
-		result.mapping = "exact_source"
-	elif not prefab.is_empty():
+		var address = _bounded_address(source.address)
+		if not address.is_empty():
+			result.source = {"address":address, "object_version":str(source.get("object_version", source.get("version", ""))).left(180)}
+			result.mapping = "exact_source"
+		else: result.source_unavailable_reason = "source_address_budget"
+	elif not prefab.is_empty() and prefab.length() <= 1024:
 		result.source = {"prefab_path":prefab, "definition_node_id":str(node.get_meta("wa_node_id", "")).left(180)}
 		result.mapping = "spawned_from_prefab"
 	var script = node.get_script()
@@ -174,6 +206,7 @@ func _observe_node(node: Node, scene: Node, source: Dictionary, prefab: String) 
 	# This opt-in metadata is author-reported plain data, never evaluated code.
 	# Reading arbitrary exported fields could execute custom getters, so do not.
 	if node.has_meta("wa_observation"):
+		safe_remaining = 128
 		result.observed_values = _safe(node.get_meta("wa_observation"))
 		result.observed_values_source = "author_reported"
 	return result
@@ -204,23 +237,40 @@ func _screen_bounds(node: Node) -> Array:
 	return [rect.position.x/viewport_size.x, rect.position.y/viewport_size.y, rect.size.x/viewport_size.x, rect.size.y/viewport_size.y]
 
 func _vec3(value: Vector3) -> Array: return [value.x, value.y, value.z]
+func _bounded_address(value: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	for key in ["project_id", "branch_id", "resource_id", "definition_node_id"]:
+		if not value.get(key) is String or str(value[key]).length() > 180: return {}
+		result[key] = value[key]
+	var chain = value.get("instance_path")
+	if not chain is Array or chain.size() > 32: return {}
+	for entry in chain:
+		if not entry is String or entry.length() > 180: return {}
+	result.instance_path = chain.duplicate()
+	return result if JSON.stringify(result).to_utf8_buffer().size() <= 4096 else {}
 func _matrix(value: Transform3D) -> Array:
 	return [value.basis.x.x,value.basis.x.y,value.basis.x.z,0,value.basis.y.x,value.basis.y.y,value.basis.y.z,0,value.basis.z.x,value.basis.z.y,value.basis.z.z,0,value.origin.x,value.origin.y,value.origin.z,1]
 
 func _safe(value: Variant, depth: int = 0) -> Variant:
-	if depth > 4: return null
+	if depth > 4 or safe_remaining <= 0: return null
+	safe_remaining -= 1
 	if value == null or value is bool or value is int: return value
 	if value is float: return value if is_finite(value) and absf(value) <= 1.0e12 else null
-	if value is String or value is StringName: return str(value).left(1000)
+	if value is String or value is StringName: return str(value).left(512)
 	if value is Dictionary:
 		var result: Dictionary = {}
-		for key in value.keys().slice(0, 32):
+		var key_count = 0
+		for key in value:
+			if safe_remaining <= 0 or key_count >= 32: break
+			key_count += 1
 			if str(key) in ["__proto__", "prototype", "constructor"]: continue
 			result[str(key).left(128)] = _safe(value[key], depth+1)
 		return result
 	if value is Array:
 		var result: Array = []
-		for item in value.slice(0, 32): result.append(_safe(item, depth+1))
+		for item in value.slice(0, 32):
+			if safe_remaining <= 0: break
+			result.append(_safe(item, depth+1))
 		return result
 	if value is Vector2: return [value.x, value.y]
 	if value is Vector3: return _vec3(value)
