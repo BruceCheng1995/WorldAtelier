@@ -22,7 +22,7 @@ export class PlayContextBuffer {
   }
   reset(scope=null){
     this.scope=scope?copy(scope):null;this.events=[];this.frames=[];this.gaps=[];this.snapshot={objects:[]};this.focus={kind:'none',runtime_ids:[]};
-    this.started=this.now();this.lastSeen=this.started;this.lastSequence=null;this.serial=0;this.bytes=0;this.snapshotBytes=0;this.mapBytes=0;this.windowSeconds=this.limits.defaultSeconds;
+    this.started=this.now();this.retainedFrom=this.started;this.lastSeen=this.started;this.lastSequence=null;this.serial=0;this.bytes=0;this.snapshotBytes=0;this.mapBytes=0;this.windowSeconds=this.limits.defaultSeconds;
     this.objects=new Map();this.lastDiff=-Infinity;this.lastFrame=-Infinity;this.closed=false;
   }
   bind(scope){
@@ -119,6 +119,7 @@ export class PlayContextBuffer {
   }
   prune(at=this.now()){
     const cutoff=at-this.windowSeconds*1000;
+    this.retainedFrom=Math.max(this.retainedFrom,cutoff);
     while(this.events.length&&this.events[0].at_ms<cutoff)this.bytes-=playContextBytes(this.events.shift());
     while(this.frames.length&&this.frames[0].at_ms<cutoff)this.bytes-=playContextBytes(this.frames.shift());
     this.gaps=this.gaps.filter(g=>g.end_ms>=cutoff);
@@ -135,7 +136,7 @@ export class PlayContextBuffer {
   }
   freeze({requestId,seconds=this.windowSeconds,scope=this.scope}={}){
     if(!this.matches(scope))throw Error('试玩窗口已关闭或已切换，未附带旧记录');
-    const end=this.now(),start=Math.max(this.started,end-Math.min(this.windowSeconds,seconds)*1000);this.prune(end);
+    const end=this.now();this.prune(end);const start=Math.max(this.started,this.retainedFrom,end-Math.min(this.windowSeconds,seconds)*1000);
     const events=this.events.filter(e=>e.at_ms>=start&&e.at_ms<=end).map(copy),available=this.frames.filter(f=>f.at_ms>=start&&f.at_ms<=end);
     const selected=new Map(),select=frame=>{if(frame)selected.set(frame.id,frame);};
     // Current image and focus are most useful, then the lead-in and the last
@@ -145,7 +146,7 @@ export class PlayContextBuffer {
     if(action)select(available.findLast(f=>f.at_ms<=action.at_ms));
     let frames=[...selected.values()].sort((a,b)=>a.at_ms-b.at_ms).slice(-this.limits.frames).map(copy);
     const gaps=this.gaps.filter(g=>g.end_ms>=start).map(copy);
-    if(start> end-seconds*1000)gaps.unshift({reason:'recording_started',available_seconds:Math.max(0,(end-start)/1000)});
+    if(start> end-seconds*1000)gaps.unshift({reason:this.retainedFrom>this.started?'history_not_retained':'recording_started',available_seconds:Math.max(0,(end-start)/1000)});
     if(this.snapshot.at_ms==null||end-this.snapshot.at_ms>5000)gaps.push({reason:'snapshot_stale',age_ms:this.snapshot.at_ms==null?null:end-this.snapshot.at_ms});
     if(!frames.length)gaps.push({reason:'no_keyframes'});
     const value={protocol:PLAY_CONTEXT_PROTOCOL,request_id:requestId,scope:copy(this.scope),captured_at:this.wallNow(),

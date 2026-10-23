@@ -10,7 +10,7 @@ function fixture(options={}){let time=0;const buffer=new PlayContextBuffer({now:
 test('default history is the bounded last 60 seconds and an explicit extension cannot restore discarded input',()=>{
   const {buffer,set}=fixture();set(1000);buffer.accept(packet(1));set(61001);buffer.accept(packet(2));
   assert.equal(buffer.events.length,1);assert.equal(buffer.events[0].sequence,2);buffer.extend(300);set(62000);
-  const capture=buffer.freeze({requestId:'test'});assert.equal(capture.window.requested_seconds,300);assert.equal(capture.events.length,1);assert.ok(capture.gaps.some(g=>g.reason==='recording_started'));
+  const capture=buffer.freeze({requestId:'test'});assert.equal(capture.window.requested_seconds,300);assert.equal(capture.events.length,1);assert.ok(capture.gaps.some(g=>g.reason==='history_not_retained'));
 });
 test('motion is coalesced and count/byte caps report loss instead of growing indefinitely',()=>{
   const {buffer,set}=fixture({limits:{events:3,localBytes:2000}});
@@ -72,4 +72,8 @@ test('text input body and composition data never enter the local record or norma
   const {buffer,set}=fixture();set(10);buffer.record({kind:'text_input',source:'user_input',payload:{field_type:'LineEdit',runtime_id:'text-field',text:'private body',unicode:97,composition:'private composition'}});
   assert.deepEqual(buffer.events[0].payload,{field_type:'LineEdit',runtime_id:'text-field',redacted:true});
   const capture=buffer.freeze({requestId:'redacted'});capture.events[0].payload.text='injected';assert.equal(normalizePlayCapture(capture).events[0].payload.text,undefined);
+});
+test('extending a long-running 60 second ring reports only retained history instead of inventing earlier availability',()=>{
+  const {buffer,set}=fixture();set(1000);buffer.record({kind:'pointer_down',payload:{}});set(600000);buffer.record({kind:'pointer_down',payload:{}});
+  buffer.extend(180);const capture=buffer.freeze({requestId:'extended'});assert.equal(capture.window.start_ms,540000);assert.equal(capture.window.end_ms,600000);assert.equal(capture.window.requested_seconds,180);assert.ok(capture.gaps.some(g=>g.reason==='history_not_retained'&&g.available_seconds===60));
 });

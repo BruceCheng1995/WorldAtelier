@@ -5,7 +5,7 @@ import {PLAY_CONTEXT_PROTOCOL,samePlayContext,summarizePlayCapture} from '../../
 const el=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!=null)node.textContent=text;return node;};
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const contextKey=c=>c&&[c.user_id,c.project_id,c.branch_id,c.session_id,c.session_generation??''].join('/');
-const gapNames={recording_started:'记录从本次试玩开始',runtime_sequence_gap:'部分运行事件未收到',local_budget:'记录达到内存上限，较早内容已省略',snapshot_stale:'当前状态可能已过时',no_keyframes:'未取得关键画面',frame_capture_failed:'一张关键画面未取得',object_budget:'对象观察达到上限',upload_frame_budget:'部分画面未附带',upload_event_budget:'部分事件未附带',runtime_observation_unavailable:'当前构建未提供完整运行观察'};
+const gapNames={recording_started:'记录从本次试玩开始',history_not_retained:'较早过程已超出原保留范围，延长从现有记录继续',runtime_sequence_gap:'部分运行事件未收到',local_budget:'记录达到内存上限，较早内容已省略',snapshot_stale:'当前状态可能已过时',no_keyframes:'未取得关键画面',frame_capture_failed:'一张关键画面未取得',object_budget:'对象观察达到上限',upload_frame_budget:'部分画面未附带',upload_event_budget:'部分事件未附带',runtime_observation_unavailable:'当前构建未提供完整运行观察'};
 
 export function playRuntimeScope(preview,context,last={}){
   const job=preview?.job;if(!job||preview.disposed||!preview.nonce||!['play','inspect'].includes(context?.mode)||context.project_id!==job.project_id||context.branch_id!==job.branch_id)return null;
@@ -67,7 +67,7 @@ export class PlayContextController {
     const context=this.getContext(),available=!!this.runtime&&!!context?.can_write&&!!context.session_id;
     this.chip.hidden=!available;this.focusButton.hidden=!this.runtime||!context?.can_write||context.mode_pending;
     this.checkbox.checked=this.included;this.range.disabled=!this.included||!!this.captureJob||!!this.removalJob;this.details.disabled=!this.buffer.events.length&&!this.buffer.frames.length;
-    if(available&&!this.captureJob){const seconds=Math.max(0,Math.min(this.buffer.windowSeconds,(performance.now()-this.buffer.started)/1000));this.status.textContent=this.included?`${Math.round(seconds)} 秒可用 · 仅此窗口${this.buffer.gaps.length?' · 有记录缺口':''}`:this.sessionChanged?'会话已切换；勾选后带入当前试玩':'本条消息不附带试玩记录';}
+    if(available&&!this.captureJob){const seconds=Math.max(0,Math.min(this.buffer.windowSeconds,(performance.now()-Math.max(this.buffer.started,this.buffer.retainedFrom))/1000));this.status.textContent=this.included?`${Math.round(seconds)} 秒可用 · 仅此窗口${this.buffer.gaps.length?' · 有记录缺口':''}`:this.sessionChanged?'会话已切换；勾选后带入当前试玩':'本条消息不附带试玩记录';}
   }
   accept(message){
     if(this.disposed)return;
