@@ -80,6 +80,11 @@ export class NativeClients{
     const user=this.store.get('creator_user',ticket.user_id);this.store.projectFor(user,checkout.project_id);return this.store.publicUser(user);
   }
   send(client,packet){if(client.ws.readyState===WebSocket.OPEN)client.ws.send(JSON.stringify(packet));}
+  rejectFencedInput(client,input){
+    const handoff=this.clients.get(client.handoff_target_client);
+    if(client.world_active||!client.world||!client.native_control_transferred&&!(handoff?.world===client.world&&(['fencing','synchronizing','activating'].includes(handoff.phase)||handoff.rolling_back)))return false;
+    this.send(client,{type:'world',packet:{action:'input_ack',native_shared:true,ok:false,code:client.native_control_transferred?'CONTROL_TRANSFERRED':'CONTROL_FENCED',world_id:client.world.id,epoch:client.world.epoch,scene_revision:client.world.revision,...(Number.isSafeInteger(input?.input_seq)?{input_seq:input.input_seq}:{}),error:'此输入的控制代次已封口，等待当前接续结果'}});return true;
+  }
   connect(ws,origin){
     const client={id:id('native-peer'),ws,origin,last_seen:Date.now(),world_active:false,scope:null,phase:'hello'};this.clients.set(client.id,client);
     client.timer=setTimeout(()=>ws.close(1008,'Client preparation timed out'),90000);
@@ -94,14 +99,11 @@ export class NativeClients{
       if(message.type==='native_ready')return this.ready(client,message.packet);
       if(message.type==='active_applied')return this.confirmActive(client,message.packet);
       if(message.type==='world_input'&&client.phase==='active'){
-        const handoff=this.clients.get(client.handoff_target_client);
-        if(!client.world_active&&(client.native_control_transferred||handoff?.world===client.world&&(['fencing','synchronizing','activating'].includes(handoff.phase)||handoff.rolling_back))){
-          // A real input can already be in flight when the old endpoint learns
-          // that it was fenced. Reject that input without killing the endpoint
-          // needed for rollback. Authentication above is still mandatory.
-          this.send(client,{type:'world',packet:{action:'input_ack',native_shared:true,ok:false,code:client.native_control_transferred?'CONTROL_TRANSFERRED':'CONTROL_FENCED',world_id:client.world.id,epoch:client.world.epoch,scene_revision:client.world.revision,input_seq:message.input?.input_seq,error:'此输入的控制代次已封口，等待当前接续结果'}});return;
-        }
-        return this.owner().native.message(client,{type:'world_input',input:message.input});
+        // A real input can arrive before the fence and finish after it. Both
+        // boundaries keep the old endpoint recoverable; other errors propagate.
+        if(this.rejectFencedInput(client,message.input))return;
+        try{return await this.owner().native.message(client,{type:'world_input',input:message.input});}
+        catch(error){if(error.status===409&&this.rejectFencedInput(client,message.input))return;throw error;}
       }
       if(message.type==='applied'&&client.phase==='active')return; // Display progress is not a control grant.
       fail(403,'客户端票据不允许此操作');
