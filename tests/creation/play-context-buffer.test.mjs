@@ -77,3 +77,7 @@ test('extending a long-running 60 second ring reports only retained history inst
   const {buffer,set}=fixture();set(1000);buffer.record({kind:'pointer_down',payload:{}});set(600000);buffer.record({kind:'pointer_down',payload:{}});
   buffer.extend(180);const capture=buffer.freeze({requestId:'extended'});assert.equal(capture.window.start_ms,540000);assert.equal(capture.window.end_ms,600000);assert.equal(capture.window.requested_seconds,180);assert.ok(capture.gaps.some(g=>g.reason==='history_not_retained'&&g.available_seconds===60));
 });
+test('engine event time is retained separately from host receipt time',()=>{
+  const {buffer,set}=fixture();set(1000);buffer.accept(packet(1,{engine_time_ms:850,tick:40}));
+  const event=normalizePlayCapture(buffer.freeze({requestId:'two-clocks'})).events[0];assert.equal(event.at_ms,1000);assert.equal(event.engine_time_ms,850);assert.equal(event.tick,40);
+});

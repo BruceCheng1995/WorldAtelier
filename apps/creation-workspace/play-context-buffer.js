@@ -53,7 +53,7 @@ export class PlayContextBuffer {
     if(input.kind.length>64||typeof input.source==='string'&&input.source.length>64){this.gap('invalid_event_payload',{},at);return false;}
     const event={id:`event-${++this.serial}`,at_ms:at,kind:input.kind,source:input.source??'client_viewport',
       resource_id:input.resource_id??scope.resource_id,scene_generation:input.scene_generation??scope.scene_generation,payload,
-      ...(input.sequence!=null?{sequence:input.sequence}:{})};
+      ...(input.sequence!=null?{sequence:input.sequence}:{}),...(Number.isFinite(input.engine_time_ms)?{engine_time_ms:input.engine_time_ms}:{}),...(Number.isFinite(input.tick)?{tick:input.tick}:{})};
     const size=playContextBytes(event);
     if(size>Math.min(this.limits.localBytes,32768)){this.gap('event_size_limit',{},at);return false;}
     // Continuous pointer motion is sampled and collapsed; it cannot consume the
@@ -75,7 +75,7 @@ export class PlayContextBuffer {
       if(this.lastSequence!=null&&packet.sequence>this.lastSequence+1)this.gap('runtime_sequence_gap',{from_sequence:this.lastSequence+1,to_sequence:packet.sequence-1},at);
       this.lastSequence=packet.sequence;
     }
-    if(packet.kind==='event')return this.record({...packet.payload,sequence:packet.sequence,resource_id:packet.resource_id,scene_generation:packet.scene_generation},{at});
+    if(packet.kind==='event')return this.record({...packet.payload,sequence:packet.sequence,engine_time_ms:packet.engine_time_ms,tick:packet.tick,resource_id:packet.resource_id,scene_generation:packet.scene_generation},{at});
     if(packet.kind!=='snapshot')return false;
     const raw=packet.payload??{};let snapshot={},objects=[];
     try{
@@ -93,7 +93,7 @@ export class PlayContextBuffer {
     for(const [key,value]of next)if(!this.objects.has(key))added.push(key);else if(this.objects.get(key)!==value)changed.push(key);
     for(const key of this.objects.keys())if(!next.has(key))removed.push(key);
     if((added.length||changed.length||removed.length)&&at-this.lastDiff>=500){
-      this.record({kind:'state_changed',source:'engine_observation',payload:{added:added.slice(0,64),changed:changed.slice(0,64),removed:removed.slice(0,64),truncated:Math.max(added.length,changed.length,removed.length)>64}},{at});this.lastDiff=at;
+      this.record({kind:'state_changed',source:'engine_observation',engine_time_ms:packet.engine_time_ms,tick:packet.tick,payload:{added:added.slice(0,64),changed:changed.slice(0,64),removed:removed.slice(0,64),truncated:Math.max(added.length,changed.length,removed.length)>64}},{at});this.lastDiff=at;
     }
     this.bytes-=this.snapshotBytes+this.mapBytes;this.objects=next;this.snapshot={...snapshot,objects,engine_time_ms:packet.engine_time_ms??null,tick:packet.tick??null,at_ms:at,scene_generation:packet.scene_generation,resource_id:packet.resource_id};
     this.snapshotBytes=playContextBytes(this.snapshot);this.mapBytes=[...next].reduce((sum,[key,value])=>sum+String(key).length*2+value.length*2,0);this.bytes+=this.snapshotBytes+this.mapBytes;

@@ -93,7 +93,8 @@ export function normalizePlayCapture(input){
       source:['user_input','engine_observation','author_reported','client_viewport'].includes(event.source)?event.source:'client_viewport',
       ...(event.resource_id?{resource_id:playContextId(event.resource_id)}:{}),
       ...(event.scene_generation!=null?{scene_generation:number(event.scene_generation,0,1e9,'事件场景代次')}:{}),
-      ...(event.sequence!=null?{sequence:number(event.sequence,0,1e12,'事件序号')}:{}),payload:playEventPayload(event.kind,event.payload)};
+      ...(event.sequence!=null?{sequence:number(event.sequence,0,1e12,'事件序号')}:{}),...(event.engine_time_ms!=null?{engine_time_ms:number(event.engine_time_ms,0,1e12,'引擎事件时间')}:{}),
+      ...(event.tick!=null?{tick:number(event.tick,0,1e12,'引擎事件时刻')}:{}),payload:playEventPayload(event.kind,event.payload)};
   });
   const {objects:_objects,...snapshotFields}=input.snapshot??{};
   const snapshot=observationValue(snapshotFields);
