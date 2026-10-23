@@ -3,7 +3,10 @@
 const MAX_BYTES=64*1024*1024,MAX_ENTRIES=5000;
 const validDomain=domain=>domain?.policy==='godot-idbfs-save-domain-1'&&domain.database==='/userfs'&&typeof domain.prefix==='string'&&domain.prefix.startsWith('/userfs/')&&!domain.prefix.split('/').some((p,i)=>i&&(!p||p==='.'||p==='..'));
 const directory=value=>(Number(value?.mode)&0xf000)===0x4000;
-const bytesOf=value=>value instanceof Uint8Array?value:value instanceof ArrayBuffer?new Uint8Array(value):null;
+// Emscripten MEMFS may retain an Int8Array view of its heap when IDBFS flushes
+// a file. Interpret every view by its byte range, preserving signed bytes and
+// offsets rather than treating the view's elements as new byte values.
+const bytesOf=value=>ArrayBuffer.isView(value)?new Uint8Array(value.buffer,value.byteOffset,value.byteLength):value instanceof ArrayBuffer?new Uint8Array(value):null;
 const inScope=(key,value,prefix)=>typeof key==='string'&&(key===prefix||key.startsWith(prefix+'/')||directory(value)&&prefix.startsWith(key+'/'))&&key.startsWith('/userfs')&&!key.includes('\0')&&!key.includes('\\')&&!key.split('/').some((p,i)=>i&&(p==='.'||p==='..'||!p));
 function openDatabase(name,{create=false}={}){
   return new Promise((resolve,reject)=>{
@@ -31,6 +34,7 @@ export async function readSaveDomain(domain){
         const row=cursor.result;if(!row)return;
         if(inScope(row.key,row.value,domain.prefix)){
           const contents=bytesOf(row.value.contents);bytes+=contents?.byteLength??0;
+          if(!directory(row.value)&&!contents){failure=Error('旧存档文件的字节格式无法识别，原数据已保留');tx.abort();return;}
           if(entries.length>=MAX_ENTRIES||bytes>MAX_BYTES){failure=Error('存档超过迁移上限，原存档未改变');tx.abort();return;}
           entries.push({key:row.key,value:{mode:row.value.mode,timestamp:row.value.timestamp,...(contents?{contents:contents.slice()}: {})}});
         }
