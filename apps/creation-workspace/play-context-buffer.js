@@ -1,7 +1,7 @@
 import {PLAY_CONTEXT_PROTOCOL,PLAY_CONTEXT_LIMITS,samePlayContext,playFocus,playContextBytes,summarizePlayCapture} from '../../packages/contracts/play-context.mjs';
 
 const copy=value=>structuredClone(value);
-const keyOf=scope=>scope&&[scope.project_id,scope.branch_id,scope.source_revision,scope.build_id,scope.runtime_instance_id].join('/');
+const keyOf=scope=>scope&&[scope.project_id,scope.branch_id,scope.source_revision,scope.build_id,scope.runtime_instance_id,scope.canonical_identity??'',scope.world_id??'',scope.epoch??'',scope.session_kind??''].join('/');
 const objectKey=row=>row.runtime_id??row.id;
 const fingerprint=row=>JSON.stringify([row.visible,row.position,row.world_matrix,row.canvas_transform,row.control,row.observed_values,row.mapping,row.parent_runtime_id]);
 
@@ -77,7 +77,7 @@ export class PlayContextBuffer {
   addFrame(image,{at=this.now(),scope=this.scope}={}){
     if(!this.matches(scope)||image?.source_revision&&image.source_revision!==scope.source_revision||image?.scene_generation!=null&&image.scene_generation!==scope.scene_generation)return false;
     if(typeof image?.data_url!=='string'||image.data_url.length>this.limits.frameBytes*1.4){this.gap('frame_size_limit',{},at);return false;}
-    const frame={id:`frame-${++this.serial}`,at_ms:at,captured_at:this.wallNow(),resource_id:scope.resource_id,scene_generation:scope.scene_generation,data_url:image.data_url};
+    const frame={id:`frame-${++this.serial}`,at_ms:at,captured_at:this.wallNow(),resource_id:scope.resource_id,scene_generation:scope.scene_generation,data_url:image.data_url,redacted_input_regions:image.redacted_input_regions??0};
     const size=playContextBytes(frame);this.frames.push(frame);this.bytes+=size;this.lastFrame=at;this.prune(at);return frame;
   }
   setFocus(value){

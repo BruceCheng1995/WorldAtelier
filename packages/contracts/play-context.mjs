@@ -43,7 +43,7 @@ export function playContextScope(value){
   return result;
 }
 export function samePlayContext(a,b,{scene=true}={}){
-  return !!a&&!!b&&['project_id','branch_id','source_revision','build_id','runtime_instance_id',...(scene?['resource_id','scene_generation']:[])].every(key=>a[key]===b[key]);
+  return !!a&&!!b&&['project_id','branch_id','source_revision','build_id','runtime_instance_id','canonical_identity','world_id','epoch','session_kind',...(scene?['resource_id','scene_generation']:[])].every(key=>(a[key]??null)===(b[key]??null));
 }
 
 export function playFocus(value){
@@ -102,7 +102,7 @@ export function normalizePlayCapture(input){
       if(!plain(frame))fail('关键画面无效');
       const value={id:playContextId(frame.id),at_ms:number(frame.at_ms,start_ms,end_ms,'画面时间'),
         resource_id:playContextId(frame.resource_id??scope.resource_id),scene_generation:number(frame.scene_generation??scope.scene_generation,0,1e9,'画面场景代次'),
-        captured_at:number(frame.captured_at??input.captured_at,0,1e15,'画面捕获时间')};
+        captured_at:number(frame.captured_at??input.captured_at,0,1e15,'画面捕获时间'),redacted_input_regions:number(frame.redacted_input_regions??0,0,64,'遮盖输入区域数')};
       if(frame.data_url!=null){if(typeof frame.data_url!=='string'||frame.data_url.length>PLAY_CONTEXT_LIMITS.frameBytes*1.4||!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]*={0,2}$/.test(frame.data_url))fail('关键画面格式或大小无效');value.data_url=frame.data_url;}
       else if(frame.image_id)value.image_id=playContextId(frame.image_id);
       else fail('关键画面缺少图像');

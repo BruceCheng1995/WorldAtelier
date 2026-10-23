@@ -9,7 +9,10 @@ import {PLAY_CONTEXT_PROTOCOL,PLAY_CONTEXT_LIMITS,normalizePlayCapture,playConte
 
 const OBSERVATION='creator_play_observation',RECEIPT='creator_play_observation_receipt';
 const token=()=>randomBytes(24).toString('base64url');
-const secretEquals=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
+const secretEquals=(a,b)=>{
+  if(typeof a!=='string'||typeof b!=='string'||a.length>180||b.length>180)return false;
+  const left=Buffer.from(a),right=Buffer.from(b);return left.length===right.length&&timingSafeEqual(left,right);
+};
 const atMost=(n,fallback,max)=>Number.isSafeInteger(Number(n))&&Number(n)>0?Math.min(Number(n),max):fallback;
 const page=(items,{cursor=0,limit=50}={})=>{const start=Math.max(0,Number.isSafeInteger(Number(cursor))?Number(cursor):0),count=atMost(limit,50,100);return {items:items.slice(start,start+count),next_cursor:start+count<items.length?start+count:null,total:items.length};};
 
@@ -70,7 +73,7 @@ export class PlayObservations {
     if(bytes.length>PLAY_CONTEXT_LIMITS.frameBytes)fail(413,'观察图片超过大小上限');
     const sha256=hash(bytes),file=resolve(this.directory,sha256);
     if(!existsSync(file))writeFileSync(file,bytes,{flag:'wx',mode:0o600});
-    return {bytes,descriptor:{id:frame.id,at_ms:frame.at_ms,captured_at:frame.captured_at,resource_id:frame.resource_id,scene_generation:frame.scene_generation,sha256,bytes:bytes.length,mime:info.mime,width:info.width,height:info.height,source:'client_rendered_frame'}};
+    return {bytes,descriptor:{id:frame.id,at_ms:frame.at_ms,captured_at:frame.captured_at,resource_id:frame.resource_id,scene_generation:frame.scene_generation,redacted_input_regions:frame.redacted_input_regions,sha256,bytes:bytes.length,mime:info.mime,width:info.width,height:info.height,source:'client_rendered_frame'}};
   }
   capture(user,sid,input,{attach=true,liveHandle=null}={}){
     const capture=normalizePlayCapture(input),{session,revision}=this.authorize(user,sid,capture.scope);
@@ -145,13 +148,19 @@ export class PlayObservations {
     for(const value of this.windows.values())if(this.now()-value.last_seen>20000)this.invalidate(value.id,'窗口观察已过期');
     const existing=[...this.windows.values()].find(w=>w.owner_user_id===user.id&&w.session_id===sid&&w.window_id===input.window_id&&samePlayContext(w.scope,scope));
     if(existing){existing.last_seen=this.now();return {handle:existing.id,secret:existing.secret,expires_in_ms:20000};}
+    // A browser window may bind to a different scene, run, or creator session.
+    // Invalidate the old capability synchronously, including queued reads; a
+    // best-effort browser close request is not an authority transition.
+    for(const value of this.windows.values())if(value.owner_user_id===user.id&&value.window_id===input.window_id)this.invalidate(value.id,'试玩窗口已经重新绑定');
     const own=[...this.windows.values()].filter(w=>w.owner_user_id===user.id);if(own.length>=8)fail(429,'实时观察窗口过多，请关闭旧窗口');
     const value={id:id('observe-window'),window_id:playContextId(input.window_id),owner_user_id:user.id,session_id:sid,scope,secret:token(),last_seen:this.now(),queue:[]};
     this.windows.set(value.id,value);return {handle:value.id,secret:value.secret,expires_in_ms:20000};
   }
   window(user,sid,handle,secret=null){
     const value=this.windows.get(handle);
-    if(!value||value.session_id!==sid||value.owner_user_id!==user.id||this.now()-value.last_seen>20000){if(value)this.invalidate(handle,'试玩窗口已过期');fail(410,'试玩窗口已经关闭、切换或失去连接');}
+    if(!value)fail(410,'试玩窗口已经关闭、切换或失去连接');
+    if(value.session_id!==sid||value.owner_user_id!==user.id)fail(403,'无权访问这个观察窗口');
+    if(this.now()-value.last_seen>20000){this.invalidate(handle,'试玩窗口已过期');fail(410,'试玩窗口已经关闭、切换或失去连接');}
     this.authorize(user,sid,value.scope);
     if(secret!==null&&!secretEquals(secret,value.secret))fail(403,'观察窗口能力无效');return value;
   }

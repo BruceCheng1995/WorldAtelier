@@ -1,8 +1,10 @@
 extends Node
+signal packet_emitted(packet: Dictionary)
 ## Optional editor transport. It observes the same game and pauses only this
 ## isolated runtime; it never loads editor preview nodes or writes source data.
 const Factory = preload("res://scene_factory.gd")
 const Hierarchy = preload("res://hierarchy_scene.gd")
+const PlayContext = preload("res://play_context_bridge.gd")
 var runtime: Node
 var embedded = false
 var started = false
@@ -37,6 +39,8 @@ var mode_error = ""
 var fault_notice: CanvasLayer
 var fault_panel: PanelContainer
 var prefab_test: Node
+var play_context: Node
+var capture_busy = false
 
 func setup(value: Node) -> void:
 	runtime = value
@@ -61,9 +65,12 @@ func setup(value: Node) -> void:
 			bridge = JavaScriptBridge.get_interface("__atelierGameBridge")
 			callback = JavaScriptBridge.create_callback(_browser_message)
 			bridge.listen(callback)
+	play_context = PlayContext.new()
+	add_child(play_context)
+	play_context.setup(runtime, self)
 
 func bootstrap_ready() -> void:
-	var capabilities = ["independent-editor-play","canonical-game-runtime","local-inspection","readonly-inspection-ui","orbit","pan","fly","fit","focus","camera_presets"]
+	var capabilities = ["independent-editor-play","canonical-game-runtime","local-inspection","readonly-inspection-ui","orbit","pan","fly","fit","focus","camera_presets","play-context-1","capture-frame-1"]
 	var test_resources = runtime.release.get("prefab_test_resources", {})
 	if not runtime.release.has("prefab_test") and test_resources is Dictionary and test_resources.get(runtime.launch_entry) is Dictionary:
 		runtime.release.prefab_test = test_resources[runtime.launch_entry].duplicate(true)
@@ -88,6 +95,12 @@ func _browser_message(args: Array) -> void:
 func receive(packet: Dictionary) -> void:
 	if not embedded or packet.get("source")!="world-atelier-workspace" or packet.get("nonce")!=nonce: return
 	var type = str(packet.get("type",""))
+	if type == "context_request":
+		if is_instance_valid(play_context): play_context.receive(packet)
+		return
+	if type == "capture_frame":
+		capture_frame(packet)
+		return
 	if runtime.shared != null and runtime.shared.is_client:
 		if type == "native_shared":
 			runtime.shared.receive(packet.get("packet",{}))
@@ -163,14 +176,47 @@ func scene_loaded(document: Dictionary) -> void:
 
 func emit(packet: Dictionary) -> void:
 	packet.merge({"source":"world-atelier-game","nonce":nonce,"scene_generation":runtime.generation,"content_key":runtime.release.get("content_key",""),"canonical_identity":runtime.release.get("canonical_identity",""),"game_identity":runtime.release.get("game_identity",{})},true)
-	outbound_log.append(packet.duplicate(true))
+	var logged = packet.duplicate(true)
+	if logged.has("data_url"):
+		logged["image_bytes_omitted"] = str(logged.data_url).length()
+		logged.erase("data_url")
+	outbound_log.append(logged)
 	while outbound_log.size()>100: outbound_log.pop_front()
+	packet_emitted.emit(packet)
 	if bridge: bridge.send(JSON.stringify(packet))
 
 func observe(id: String) -> Dictionary:
 	if runtime.native_mode: return runtime.projection.observe(id)
 	var node: Node3D = runtime.projection.objects[id]
 	return Hierarchy.observation(id,node,runtime.projection.definitions[id])
+
+func capture_frame(packet: Dictionary) -> void:
+	if not started or not runtime.running or capture_busy: return
+	if packet.get("seq") != seq or packet.get("document_id") != document_id or packet.get("scene_generation") != runtime.generation: return
+	var capture_request = str(packet.get("request_id", ""))
+	if capture_request.is_empty() or capture_request.length() > 180: return
+	var generation = runtime.generation
+	var fixed_document = document_id
+	var fixed_seq = seq
+	if DisplayServer.get_name() == "headless":
+		emit({"type":"captured_frame","request_id":capture_request,"error":"Headless runtime has no rendered frame","seq":fixed_seq,"document_id":fixed_document,"source_revision":runtime.release.revision})
+		return
+	capture_busy = true
+	await RenderingServer.frame_post_draw
+	if not is_instance_valid(runtime) or generation != runtime.generation or fixed_document != document_id or fixed_seq != seq:
+		capture_busy = false
+		return
+	var image = get_viewport().get_texture().get_image()
+	if image != null and not image.is_empty():
+		var longest = maxi(image.get_width(), image.get_height())
+		if longest > 1920:
+			var ratio = 1920.0/float(longest)
+			image.resize(maxi(1,roundi(image.get_width()*ratio)),maxi(1,roundi(image.get_height()*ratio)),Image.INTERPOLATE_BILINEAR)
+		var bytes = image.save_png_to_buffer()
+		if bytes.size() <= 8*1024*1024:
+			emit({"type":"captured_frame","request_id":capture_request,"data_url":"data:image/png;base64,"+Marshalls.raw_to_base64(bytes),"width":image.get_width(),"height":image.get_height(),"seq":fixed_seq,"document_id":fixed_document,"source_revision":runtime.release.revision})
+		else: emit({"type":"captured_frame","request_id":capture_request,"error":"Rendered frame exceeds capture budget","seq":fixed_seq,"document_id":fixed_document,"source_revision":runtime.release.revision})
+	capture_busy = false
 
 func emit_state() -> void:
 	if runtime.shared != null and runtime.shared.is_client:

@@ -56,3 +56,11 @@ test('silent current windows time out and never replay gameplay input',async t=>
   const f=contextFixture(t,{liveTimeout:20}),window=f.service.observations.register(f.owner,f.session.id,{window_id:'window-one',scope:f.scope});
   await assert.rejects(f.service.observations.current(f.owner,f.session.id,window.handle),{status:408});assert.equal(f.store.list('creator_play_observation').length,0);
 });
+test('rebinding the same window invalidates its prior generation and pending read immediately',async t=>{
+  const f=contextFixture(t,{liveTimeout:1000}),first=f.service.observations.register(f.owner,f.session.id,{window_id:'window-one',scope:f.scope});
+  const pending=f.service.observations.current(f.owner,f.session.id,first.handle),rejected=assert.rejects(pending,{status:410});
+  const second=f.service.observations.register(f.owner,f.session.id,{window_id:'window-one',scope:{...f.scope,scene_generation:2}});
+  await rejected;assert.notEqual(first.handle,second.handle);
+  assert.throws(()=>f.service.observations.poll(f.owner,f.session.id,first.handle,first),{status:410});
+  assert.throws(()=>f.service.observations.current(f.owner,f.session.id,first.handle),{status:410});
+});
