@@ -196,8 +196,27 @@ function mergedOrder(base,source,target,present,context,local,path){
 function mergeNativeStructured(baseText,sourceText,targetText,{context,local,path}){
   const documents=[baseText,sourceText,targetText].map(parseNativeText);if(documents.some(value=>!value))return null;
   const [base,source,target]=documents;
+  const byNodePath=document=>new Map(document.sections.filter(section=>section.header.kind==='node').map(section=>[section.nodePath,section]));
+  const nodePaths=documents.map(byNodePath);
+  for(const nodePath of new Set([...nodePaths[1].keys(),...nodePaths[2].keys()])){
+    const [b,s,t]=nodePaths.map(nodes=>nodes.get(nodePath));
+    if(s&&t&&s.key!==t.key&&(!b||s.raw!==b.raw&&t.raw!==b.raw))return context.choose(local+'/node-identity/'+encodeURIComponent(nodePath),baseText,sourceText,targetText,{kind:'node_identity',path,note:'同一原生节点路径使用不同稳定身份，无法推断为改名或同一个对象；此决议选择整份文件'},true);
+  }
+  // A structural change and an independently edited descendant do not commute
+  // merely because their property lines are separate. Preserve the originals.
+  const baseNodes=base.sections.filter(section=>section.header.kind==='node'),editedPaths=document=>baseNodes.filter(node=>document.byKey.get(node.key)?.raw!==node.raw).map(node=>node.nodePath).sort(),sourceEdits=editedPaths(source),targetEdits=editedPaths(target);
+  const hasDescendant=(paths,path)=>{if(path==='.')return paths.some(value=>value!=='.');const prefix=path+'/';let lo=0,hi=paths.length;while(lo<hi){const mid=(lo+hi)>>1;if(paths[mid]<prefix)lo=mid+1;else hi=mid;}return paths[lo]?.startsWith(prefix)??false;};
+  for(const b of baseNodes)for(const [changed,otherEdits]of [[source,targetEdits],[target,sourceEdits]]){
+    const next=changed.byKey.get(b.key);if(!next||next.header.raw===b.header.raw)continue;
+    const descendantEdited=hasDescendant(otherEdits,b.nodePath);
+    if(descendantEdited)return context.choose(local+'/hierarchy/'+encodeURIComponent(b.key),baseText,sourceText,targetText,{kind:'hierarchy_dependency',path,section:b.key,note:'父级结构变化与另一侧子树编辑相互影响，请核对完整层级；此决议选择整份文件'},true);
+  }
   // Reusing a resource ID for another resource can silently redirect untouched
   // references. A token merge must not invent a cross-resource rename mapping.
+  for(const section of source.sections.filter(s=>['ext_resource','sub_resource'].includes(s.header.kind))){
+    const other=target.byKey.get(section.key);
+    if(!base.byKey.has(section.key)&&other&&other.raw!==section.raw)return context.choose(local+'/new-resource-identity/'+encodeURIComponent(section.key),baseText,sourceText,targetText,{kind:'resource_identity',path,note:'双方新增了相同的局部资源 ID，但内容不同；逐段拼接会让另一侧引用错误资源，此决议选择整份文件'},true);
+  }
   for(const section of base.sections.filter(s=>s.header.kind==='ext_resource')){
     const s=source.byKey.get(section.key),t=target.byKey.get(section.key),identity=x=>x?stable([...x.header.attrs].filter(([name])=>['path','uid','type'].includes(name)).map(([name,value])=>[name,value.value])):null;
     if(s&&t&&(identity(s)!==identity(section)||identity(t)!==identity(section))&&identity(s)!==identity(t))return context.choose(local+'/resource-identity',baseText,sourceText,targetText,{kind:'resource_identity',path,note:'外部资源身份变化，需明确核对所有引用'},true);

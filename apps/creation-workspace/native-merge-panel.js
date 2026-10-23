@@ -1,7 +1,7 @@
 const escape=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const route=scope=>`/projects/${encodeURIComponent(scope.projectId)}/branches/${encodeURIComponent(scope.branchId)}`;
 const short=value=>String(value??'').slice(0,14);
-const labels={property:'属性冲突',transform:'完整变换冲突',text:'文本冲突',binary:'二进制冲突',delete_modify:'删除与修改',add_add:'同时新增',structure:'结构冲突',structure_with_edits:'结构与属性修改',resource_identity:'资源引用身份',native_unparsed:'需要核对原生结构',order:'顺序冲突'};
+const labels={property:'属性冲突',transform:'完整变换冲突',text:'文本冲突',binary:'二进制冲突',delete_modify:'删除与修改',add_add:'同时新增',structure:'结构冲突',structure_with_edits:'结构与属性修改',node_identity:'节点稳定身份冲突',hierarchy_dependency:'父级结构与子树编辑',resource_identity:'资源引用身份',native_unparsed:'需要核对原生结构',order:'顺序冲突'};
 const choiceLabels={source:'采用来源变化',target:'保留当前目标',base:'采用共同基线',manual:'手工组合片段'};
 const display=value=>value===null?'（不存在 / 未显式覆盖）':typeof value==='string'?value:JSON.stringify(value,null,2);
 

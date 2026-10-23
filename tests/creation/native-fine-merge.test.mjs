@@ -61,6 +61,16 @@ test('renaming/reparenting with other-side properties is an explicit structure c
   const result=mergeNativeFiles({base,source,target,archive});assert.equal(result.unresolved[0].kind,'structure_with_edits');
 });
 
+test('colliding local resource IDs cannot silently redirect the other side references after a choice',t=>{
+  const {archive,manifest}=archiveFixture(t),base='[gd_scene format=3]\n[node name="Root" type="Node"]\nmetadata/wa_node_id = "root"\n',source=base.replace('[node','[ext_resource type="Script" path="res://a.gd" id="new"]\n[node').replace('metadata/wa_node_id','script = ExtResource("new")\nmetadata/wa_node_id'),target=base.replace('[node','[ext_resource type="Script" path="res://b.gd" id="new"]\n[node').replace('metadata/wa_node_id','script = ExtResource("new")\nmetadata/wa_node_id'),input={base:manifest({'scene.tscn':base}),source:manifest({'scene.tscn':source}),target:manifest({'scene.tscn':target}),archive};
+  const plan=mergeNativeFiles(input);assert.equal(plan.unresolved.length,1);assert.equal(plan.unresolved[0].kind,'resource_identity');const merged=mergeNativeFiles({...input,resolutions:{[plan.unresolved[0].key]:'target'}});assert.equal(resultText(archive,merged),target);
+});
+
+test('identity replacement and parent-structure/descendant edits are explicit coupled conflicts',t=>{
+  const {archive,manifest}=archiveFixture(t),source=scene.replace('metadata/wa_node_id = "root"','metadata/wa_node_id = "different-root"'),target=scene.replace('visible = true','visible = false'),identity=mergeNativeFiles({base:manifest({'scene.tscn':scene}),source:manifest({'scene.tscn':source}),target:manifest({'scene.tscn':target}),archive});assert.equal(identity.unresolved[0].kind,'node_identity');
+  const structure=mergeNativeFiles({base:manifest({'scene.tscn':scene}),source:manifest({'scene.tscn':scene.replace('name="Root"','name="RenamedRoot"')}),target:manifest({'scene.tscn':scene.replace('Vector3(0, 0, 0)','Vector3(0, 1, 0)')}),archive});assert.equal(structure.unresolved[0].kind,'hierarchy_dependency');
+});
+
 test('disjoint text changes preserve CRLF and inserted lines; conflicts are bounded hunks',t=>{
   const {archive,manifest}=archiveFixture(t),text='first\r\nsecond\r\nthird\r\nfourth\r\n',base=manifest({'code.gd':text}),source=manifest({'code.gd':text.replace('first','FIRST')}),target=manifest({'code.gd':text.replace('fourth','FOURTH')});
   const result=mergeNativeFiles({base,source,target,archive});assert.equal(result.unresolved.length,0);assert.equal(resultText(archive,result,'code.gd'),'FIRST\r\nsecond\r\nthird\r\nFOURTH\r\n');
