@@ -25,9 +25,9 @@ async function safeDirectory(path){
 }
 export function clientRequest(server,token,signal){
   const origin=new URL(server);assert(['http:','https:'].includes(origin.protocol)&&!origin.username&&!origin.password,'服务器地址无效');
-  return async(route,{method='GET',body,bytes=false,maximum=1024*1024}={})=>{
+  return async(route,{method='GET',body,bytes=false,maximum=1024*1024,timeoutMs=120000}={})=>{
     const url=new URL(route,origin);assert(url.origin===origin.origin&&url.pathname.startsWith('/creation-api/'),'拒绝向其他地址发送创作凭据');
-    const response=await fetch(url,{method,redirect:'error',headers:{Authorization:`Bearer ${token}`,Origin:origin.origin,...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(120000)});
+    const response=await fetch(url,{method,redirect:'error',headers:{Authorization:`Bearer ${token}`,Origin:origin.origin,...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs)});
     const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>maximum){await response.body.cancel?.().catch(()=>{});throw Error('服务器响应超过固定清单上限');}chunks.push(chunk);}
     const value=Buffer.concat(chunks);if(!response.ok){let error;try{error=JSON.parse(value);}catch{}throw Object.assign(Error(error?.error??`请求失败 ${response.status}`),{status:response.status,details:error?.details});}
     return bytes?value:JSON.parse(value);
@@ -161,17 +161,42 @@ async function main(){
     const start=async input=>launch({request,...input,engine,signal:cancellation.signal,headless:args.headless===true,timeout:Number(args.timeout)||0,onStatus:packet=>{
       console.log(JSON.stringify(packet));if(packet.status==='upgrade_required')upgraded=true;
     }});
-    current=await start(next);
+    const connectPrepared=async initial=>{
+      let input=initial;
+      for(let attempt=0;;attempt++){
+        let candidate;
+        try{
+          candidate=await start(input);
+          while(!candidate.active&&!stopping){const exited=await Promise.race([candidate.done,new Promise(resolve=>setTimeout(()=>resolve(null),250))]);if(exited)throw Error(exited.error||'客户端未收到实际控制确认');}
+          cancellation.signal.throwIfAborted();return candidate;
+        }catch(error){
+          candidate?.stop();await candidate?.done;cancellation.signal.throwIfAborted();
+          let receipt;
+          try{receipt=(await request(`/creation-api/native-clients/checkouts/${input.checkout.id}`,{timeoutMs:15000})).transfer;}
+          catch{throw Error('客户端确认中断，服务端交接结果尚未查明；请联网后重新接续。'+error.message);}
+          if(!receipt?.control_confirmed_at){
+            const state=receipt?.status==='failed_recovered'?'旧端已实际恢复':receipt?.status==='restoring_previous'?'正在等待旧端实际恢复':'控制权未提交';
+            throw Error(state+'：'+error.message);
+          }
+          console.log(JSON.stringify({stage:'committed_disconnected',checkout_id:input.checkout.id,transfer_status:receipt.status,controller_version:receipt.controller_version}));
+          if(attempt>=2)throw Error('服务端已提交控制转移，但客户端确认或连接丢失；自动重新接续失败，原画面不代表仍有控制权。'+error.message);
+          const fresh=await prepare();
+          assert(fresh.checkout.controller_version===receipt.controller_version,'角色已被后续操作接管，停止自动恢复；请按当前世界重新选择接续');
+          console.log(JSON.stringify({stage:'recovering_committed_transfer',previous_checkout_id:input.checkout.id,checkout_id:fresh.checkout.id}));
+          input=fresh;
+        }
+      }
+    };
+    current=await connectPrepared(next);
     for(;;){
       const result=await Promise.race([current.done,new Promise(resolve=>setTimeout(()=>resolve(null),500))]);
       if(stopping){await current.done;break;}
       if(upgraded&&args['no-follow']!==true&&!pending){
         upgraded=false;
         try{
-          next=await prepare();pending=await start(next);
-          const deadline=Date.now()+90000;while(!pending.active&&!stopping&&Date.now()<deadline){const exited=await Promise.race([pending.done,new Promise(resolve=>setTimeout(()=>resolve(null),250))]);if(exited)throw Error(exited.error||'新客户端未确认接续');}
-          assert(pending.active,'新客户端未确认接续，旧画面与服务器进度保留');current.stop();await current.done;current=pending;pending=null;completed++;continue;
-        }catch(error){pending?.stop();await pending?.done;pending=null;console.error('客户端更新未接续：'+error.message);}
+          next=await prepare();pending=await connectPrepared(next);
+          current.stop();await current.done;current=pending;pending=null;completed++;continue;
+        }catch(error){pending?.stop();await pending?.done;pending=null;console.error('客户端更新中断：'+error.message);}
       }
       if(result){if(!result.active||result.code!==0&&!(args.timeout&&result.signal==='SIGTERM'&&result.active))throw Error(result.error||(result.active?'共享客户端连接已结束，需要重新接续':'客户端未取得实际控制权'));break;}
     }
