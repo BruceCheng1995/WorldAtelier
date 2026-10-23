@@ -2,6 +2,8 @@
 
 日常创作工作台固定为 **http://127.0.0.1:48910/creation-workspace.html**。它由 `services/preview/server.mjs` 提供，页面源文件在 `apps/creation-workspace/`，同一服务包含创作 API、真实会话和 Godot Web。48900 中央门户已退役，不再启动；48921 仅供隔离测试。48922 顶部设计临时服务已停用。
 
+2026-10-23：作者游戏使用同一监听服务上的独立运行来源。本机为 `wa-runtime.localhost`，局域网为对应 IPv4-mapped IPv6；由已认证的工作台签发固定构建授权，不手工拼接运行 URL。浏览器可直接解析 `*.localhost`，命令行系统 DNS 的行为可能不同。运行 Host 不开放创作或管理 API；静态编辑器、独立 Play 与显式共享世界继续分别处理。旧存档通过可信页面显式迁移或导出，详见 [运行隔离](RUNTIME-ORIGIN-ISOLATION.md)。顶部「本机与离线工作区」提供离线工具和[原生客户端接续](NATIVE-CLIENT-CONTINUITY.md)。
+
 ## 启动与复用
 
 在工程根目录执行 `npm start`（`npm run dev`、`npm run start:preview` 是同一入口）。只需一个终端和一个服务，48910 同时提供工作台、创作 API 与 Godot Web；在实际启动服务的终端按 Ctrl+C 停止。

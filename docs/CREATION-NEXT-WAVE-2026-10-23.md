@@ -1,6 +1,8 @@
 # 本轮创作能力决策与落地讨论
 
-日期：2026-10-23。状态：用户已授权按本方案完整开发，实施与独立验证进行中。下文作为设计基线，实际通过范围须以本轮独立证据为准。
+日期：2026-10-23。状态：本轮功能已接入原工作台。下文保留用户决策与设计基线，实际运行、独立验证、失败修复和边界见[本轮独立验证](CREATION-NEXT-WAVE-VALIDATION-2026-10-23.md)。
+
+实现入口：[作者游戏运行隔离](RUNTIME-ORIGIN-ISOLATION.md)、[试玩上下文](PLAY-CONTEXT.md)、[原生合并与离线往返](NATIVE-MERGE-OFFLINE-INTEGRATION.md)、[本机客户端接续](NATIVE-CLIENT-CONTINUITY.md)。统一产品入口仍是 `http://127.0.0.1:48910/creation-workspace.html`。
 
 ## 1. 已确定的范围
 

@@ -1,12 +1,12 @@
 # 原生合并与离线工作区接入
 
-2026-10-23。本文件记录此次代码接口和接入点。主集成负责公共路由与原工作台接线；不新增服务端口或第二套源稿。
+2026-10-23。本文件记录此次代码接口和接入点。公共路由、原工作台与备份保留已接入，继续使用同一中央原生源稿和 48910 服务。实际验收见[本轮独立验证](CREATION-NEXT-WAVE-VALIDATION-2026-10-23.md)。
 
 ## 原生分支合并
 
 `NativeMerges.preview(user,p,b,{source_branch_ids:[...]})` 固定有序来源，兼容旧 `source_branch_id`。结果包含 `id`、`algorithm`、`plan_identity`、`target_revision`、`sources`、`steps`、`changes`、`conflicts`、`unresolved_count`、`statistics`。
 
-新增方法和建议路由：
+当前方法与路由：
 
 | 路由 | 调用 |
 | --- | --- |
@@ -119,7 +119,7 @@ checkout 同时缓存 `snapshotProjectRuntime` 的可信原始模板、当前 `a
 ## 开发自测范围
 
 - `native-fine-merge.test.mjs`：纯 Node / SQLite / 原始文件，覆盖细粒度保留、多来源原子性、冲突、head/权限变化、补偿撤回、错误祖先拒绝。
-- `native-offline-roundtrip.test.mjs`：自有 49031、临时数据，实际 HTTP / SQLite / 文件系统；覆盖增量、续改、冲突、断线回执、pull、批量替换恢复、权限、便携客户端。服务规范化使用受控 fixture；不能据此声称服务 Godot 验证。
+- `native-offline-roundtrip.test.mjs`：独占 48921、临时数据，实际 HTTP / SQLite / 文件系统；覆盖增量、续改、冲突、断线回执、pull、批量替换恢复、权限、便携客户端。须与其他 48921 检查串行，端口占用即失败。服务规范化使用受控 fixture；不能据此声称服务 Godot 验证。
 - 该测试末尾另有真正本机 headless/Dummy/隔离检查：断网后修改入口并新增场景，真实引擎发现、canonical GameRuntime 运行读到本地新值，源目录与中央 head 不变，子进程没有创作令牌。它不是浏览器/GPU或共享接续证据。
 
-独立测试角色仍需在主集成版本验证真实服务原生规范化、原工作台多源交互、备份恢复和新的共享客户端接续。开发自测不替代这些独立结果。
+主集成版本已由独立角色验证真实服务原生规范化、原工作台多源交互、备份恢复和共享客户端接续，完整范围与层次见本轮报告；开发自测不替代这些独立结果。
