@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {createServer as httpServer} from 'node:http';
 import {createServer as netServer} from 'node:net';
 import {spawn} from 'node:child_process';
-import {mkdtemp,mkdir,readFile,writeFile,rm,access,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm,access,symlink,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -31,7 +31,7 @@ process.on('SIGTERM',stop);process.on('SIGINT',stop);
 `;
 
 async function fixture(t){
-  const directory=await mkdtemp(resolve(tmpdir(),'atelier-entry-FAKE-'));
+  const directory=await realpath(await mkdtemp(resolve(tmpdir(),'atelier-entry-FAKE-')));
   for(const relative of ['tools','services/preview','apps/creation-workspace','.local'])await mkdir(resolve(directory,relative),{recursive:true});
   await writeFile(resolve(directory,'tools/start-workspace.mjs'),entry);
   await writeFile(resolve(directory,'services/preview/network.mjs'),await readFile(resolve(root,'services/preview/network.mjs')));
@@ -40,10 +40,10 @@ async function fixture(t){
   const children=[];
   t.after(async()=>{for(const child of children)if(child.process.exitCode===null&&child.process.signalCode===null){child.process.kill('SIGTERM');await Promise.race([child.done,sleep(3000)]);assert.ok(child.process.exitCode!==null||child.process.signalCode!==null,'owned FAKE startup process must stop');}await rm(directory,{recursive:true,force:true});});
   const ledger=resolve(directory,'child-starts.jsonl');
-  function start(overrides={}){
+  function start(overrides={},args=[]){
     const env={...process.env,WORLD_ATELIER_PREVIEW_PORT:String(port),WORLD_ATELIER_PREVIEW_DATA:resolve(directory,'isolated/preview'),WORLD_ATELIER_CREATION_DATA:resolve(directory,'isolated/creation'),ATELIER_ENTRY_FAKE_LEDGER:ledger,...overrides};
     for(const [key,value]of Object.entries(env))if(value===undefined)delete env[key];
-    const processChild=spawn(process.execPath,['tools/start-workspace.mjs'],{cwd:directory,env,stdio:['ignore','pipe','pipe']});
+    const processChild=spawn(process.execPath,['tools/start-workspace.mjs',...args],{cwd:directory,env,stdio:['ignore','pipe','pipe']});
     const state={process:processChild,output:'',done:null};processChild.stdout.on('data',b=>state.output+=b);processChild.stderr.on('data',b=>state.output+=b);
     state.done=new Promise((yes,no)=>{processChild.once('error',no);processChild.once('exit',(code,signal)=>yes({code,signal}));});children.push(state);return state;
   }
@@ -95,6 +95,35 @@ test('concurrent starts acquire one lock and create one FAKE child; a later comm
 test('a pre-existing startup lock is reported and never removed or bypassed',{timeout:10000},async t=>{
   await freePort();const f=await fixture(t),record=JSON.stringify({pid:987654321,port,scope:'FAKE stale lock; not owned by test starter'});await writeFile(f.lock,record);
   const result=await f.run();assert.equal(result.code,1);assert.match(result.output,/锁文件/);assert.equal(await readFile(f.lock,'utf8'),record);assert.deepEqual(await f.starts(),[]);
+});
+
+test('background mode waits for an existing service and starts after it exits',{timeout:25000},async t=>{
+  await freePort();const f=await fixture(t),first=f.start();
+  await until(async()=>{try{return(await fetch(`http://127.0.0.1:${port}/preview-api/health`)).ok;}catch{return false;}},'first listener');
+  const watcher=f.start({},['--background']);
+  await until(()=>watcher.output.includes('后台守护等待'),'background watcher');
+  assert.equal((await f.starts()).length,1);
+  first.process.kill('SIGTERM');await first.done;
+  await until(async()=>(await f.starts()).length===2,'background takeover',20000);
+  watcher.process.kill('SIGTERM');assert.equal((await watcher.done).code,0);
+  assert.equal(await exists(f.lock),false);
+});
+
+test('background mode only recovers a dead starter with matching root and port',{timeout:10000},async t=>{
+  await freePort();const f=await fixture(t);
+  for(const record of [
+    {pid:process.pid,port,root:f.directory},
+    {pid:987654321,port,root:'/unrelated/project'},
+    {pid:987654321,port:48910,root:f.directory},
+  ]){
+    await writeFile(f.lock,JSON.stringify(record));
+    const child=f.start({ATELIER_ENTRY_FAKE_EXIT:'1'},['--background']);
+    assert.equal((await child.done).code,1);assert.deepEqual(JSON.parse(await readFile(f.lock,'utf8')),record);
+  }
+  await writeFile(f.lock,JSON.stringify({pid:987654321,port,root:f.directory}));
+  const child=f.start({ATELIER_ENTRY_FAKE_EXIT:'1'},['--background']);
+  assert.equal((await child.done).code,0,child.output);assert.match(child.output,/已清理退出的启动器/);
+  assert.equal((await f.starts()).length,1);assert.equal(await exists(f.lock),false);
 });
 
 test('nondefault ports require both explicit data directories before any listener or child action',{timeout:10000},async t=>{

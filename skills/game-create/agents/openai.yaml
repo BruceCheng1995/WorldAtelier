@@ -1,0 +1,4 @@
+interface:
+  display_name: "新游戏创建"
+  short_description: "拆分场景与预制件，规划玩法和素材，并记录当前任务的详细需求"
+  default_prompt: "使用 $game-create 为当前游戏整理场景、预制件、玩法框架和素材方案，并把详细需求记录在本任务中。"

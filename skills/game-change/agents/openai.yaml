@@ -1,0 +1,4 @@
+interface:
+  display_name: "游戏需求修改"
+  short_description: "分析需求关联，修改场景和预制件，更新描述属性并按验证方案交付"
+  default_prompt: "使用 $game-change 承接当前游戏需求，分析关联对象、制定验证方案、完成开发并记录实际交付结果。"

@@ -11,6 +11,7 @@ import {nativeEnvironmentFields,nativeWorkspaceContext,nativeSemanticAuthoringGu
 import {PROPERTY_ACTION_GUIDE,propertyActionContext,propertyActionTools} from './authoring-actions.mjs';
 import {attachmentReferences} from './agent-attachment-references.mjs';
 import {agentTextContext} from './agent-text-context.mjs';
+import {creatorSkillIndex} from './agent-skill-catalog.mjs';
 
 const json=(path,value)=>writeFileSync(path,JSON.stringify(value,null,2)+'\n',{flag:constants.O_WRONLY|constants.O_CREAT|constants.O_TRUNC|constants.O_NOFOLLOW,mode:0o600});
 function safeDirectory(root,path){
@@ -51,7 +52,7 @@ export class CreationEnvironments {
     writeWorkspaceFile(cwd,'.execution/godot',`#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(runner)} "$@"\n`);
     chmodSync(launcher,0o700);
     const manifest={version:1,...scope(session),cwd,authority:'central_source_service',game_project_contract:GAME_PROJECT_CONTRACT,runtime_entry:{main_scene:'res://standalone.tscn',autoload:'GameRuntime',run:'Godot F5 or --path project',shared_with:['editor_play','standalone_web','native_exports']},storage_policy:GAME_STORAGE_POLICY,paths:{context:join(cwd,'context'),work:join(cwd,'work'),outputs:join(cwd,'outputs')},tools:['semantic_read','semantic_apply','knowledge_search','knowledge_read','knowledge_write','world_read','workspace_prepare','workspace_test','asset_catalog','asset_search','asset_detail','asset_import','asset_publish','world_apply','game_validate','world_validate','shared_world_validate','world_publish'],engine:{family:'Godot',required:'4.6.stable',executable:this.godot},isolation:executionCapabilities(),note:'工程是中央源稿的固定投影，与编辑器 Play 和独立游戏共用 GameRuntime 原生入口。所有场景、未摆放预制件、嵌套定义与版本依赖都包含在内。修改在 work/ 副本中进行，通过 asset_publish/world_apply 提交后重新生成；不改 runtime/ 固定输入，不把模型编辑器宿主带入游戏。测试使用独立 user://，不连接在线世界。'};
-    manifest.skills=[{name:'game-assets',path:join(cwd,'.agents/skills/game-assets/SKILL.md'),description:'搜集、下载、制作和导入游戏资产；上下文仅保留引用与摘要。'}];
+    manifest.skills=creatorSkillIndex(cwd);
     manifest.tools.push('play_context_read','play_context_current','session_context_read');
     manifest.tools.push('branch_merge_preview','branch_merge_read','branch_merge_review','branch_merge_apply');
     manifest.asset_workflow={server_downloads:true,file_authoring:true,context:'references_and_metadata',native_submission:'submit_native_workspace',legacy_publication:['glb','gd'],network:'creator command network policy; isolation below describes Godot execution'};

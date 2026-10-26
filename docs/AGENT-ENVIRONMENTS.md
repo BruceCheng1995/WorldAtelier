@@ -20,6 +20,8 @@ workspaces/<project>/<branch>/<user>/<session>/
   inputs/                               兼容模式的文本行为 API，不复制资产
   work/<environment>/                   可编辑 Godot 工程，包含文本和原始资产
   .agents/skills/game-assets/            平台投影的资产搜集与制作 skill
+  .agents/skills/game-create/            新游戏规划及当前任务需求文档
+  .agents/skills/game-change/            需求修改、说明维护与验收交付
   outputs/                              检查回执等本地成果
   .execution/                           Codex 命令的私有 HOME、临时目录和缓存
 
@@ -91,3 +93,5 @@ Headless 不能作为视觉通过的证据；截图脚本跳过该模式的 GPU 
 [game-assets](../skills/game-assets/SKILL.md) 随平台版本维护，准备会话时复制到会话根 `.agents/skills/game-assets/`，`workspace.json.skills`、AGENTS.md、新建/恢复线程指令和新回合短提醒都提供入口。仅加载主 skill 与当前任务需要的 references，不把整套素材目录塞进提示词。现有长期会话仍使用原 cwd、thread、源版本和未提交文件；下一次绑定/回合刷新规则，不重写历史消息。
 
 skill 支持公开模型、图片、PBR 贴图、Godot 插件/模板；也支持 Godot 内建几何、Pillow 绘图和后台 Blender。提供有界下载/ZIP 解压助手、来源许可与生成记录、导入/动画/材质/Web 适配指引。依赖按实际执行环境探测；Pillow 可安装在本会话 venv，不能因系统 Python 缺包断言资产制作不被允许。源保存、检查、构建和发布仍分开。
+
+2026-10-25 新增 [游戏创建与需求修改技能](AGENT-GAME-WORKFLOWS.md)，沿用同一会话投影和按需发现机制；需求与变更记录归当前任务，公共设计摘要才进入共享知识。已有会话在下一次绑定/回合刷新技能，不迁移线程，也不新增自动验收门禁。

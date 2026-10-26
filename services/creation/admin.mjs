@@ -3,6 +3,7 @@ import {AiLimits} from './ai-limits.mjs';
 import {randomBytes} from 'node:crypto';
 import {hash, id, fail, clone, name, identifier} from './schema.mjs';
 import {AdminMetrics} from './admin-metrics.mjs';
+import {AdminTokenUsage} from './admin-token-usage.mjs';
 
 const COOKIE='wa_admin',ACTIVE=new Set(['queued','starting','running','reviewing','waiting_input','cancelling']);
 const fields=(input,allowed)=>{if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!allowed.includes(k)))fail(400,'不支持的管理参数');};
@@ -10,7 +11,7 @@ const page=(items,query)=>{const q=String(query.get('q')??'').trim().toLowerCase
 const cookieValue=req=>String(req.headers.cookie??'').split(';').map(x=>x.trim()).find(x=>x.startsWith(COOKIE+'='))?.slice(COOKIE.length+1);
 
 export class CreationAdmin {
-  constructor({service,server}){this.service=service;this.store=service.store;this.metrics=new AdminMetrics(service,server);this.market=new AdminMarket(this);}
+  constructor({service,server}){this.service=service;this.store=service.store;this.metrics=new AdminMetrics(service,server);this.market=new AdminMarket(this);this.tokenUsage=new AdminTokenUsage(this.store);}
   assert(user){if(!this.store.isAdmin(user))fail(403,'此页面仅对服务器管理员开放');return user;}
   cookieUser(req){
     const token=cookieValue(req),grant=token&&this.store.get('creator_admin_session',hash(token));
@@ -135,9 +136,10 @@ export class CreationAdmin {
     if(area==='access'&&req.method==='POST')return this.access(req,res);
     const user=this.auth(req);
     if(area==='logout'&&req.method==='POST')return this.logout(req,res);
-    if(area==='session'&&req.method==='GET')return {user,sole_admin:true,market_admin_version:1};
+    if(area==='session'&&req.method==='GET')return {user,sole_admin:true,market_admin_version:1,token_usage_version:1};
     if(area==='overview'&&req.method==='GET')return this.overview();
     const query=new URL(req.url,this.service.origin).searchParams;
+    if(area==='token-usage'&&req.method==='GET'&&(!target||target==='overview'))return this.tokenUsage.view(query,Date.now(),target==='overview');
     if(area==='market')return this.market.request(req,target,query,user,body,page);
     if(area==='metrics'&&req.method==='GET')return this.metrics.view(query.get('range')??'1h');
     if(area==='ai'&&target&&req.method==='PATCH')return this.changeAi(user,target,await body());

@@ -14,6 +14,7 @@ import {CreationAgentRuns} from '../../services/creation/agent-runs.mjs';
 import {CodexAgent} from '../../services/creation/codex-agent.mjs';
 import {nativeSourceIdentity} from '../../services/creation/native-source.mjs';
 import {AGENT_PREFAB_GUIDANCE,AGENT_PREFAB_REMINDER} from '../../services/creation/agent-prefab-policy.mjs';
+import {CREATOR_SKILLS,AGENT_WORKFLOW_REMINDER} from '../../services/creation/agent-skill-catalog.mjs';
 
 const root=resolve(import.meta.dirname,'../..');
 const clone=structuredClone;
@@ -88,6 +89,8 @@ test('native workspace refresh keeps authored files and cwd while supplying pref
   assert.equal(f.manager.workspace(f.store.get('creator_session',f.session.id)),cwd);
   assert.equal(readFileSync(authored,'utf8'),originalScript);assert.deepEqual(readFileSync(asset),originalAsset);assert.equal(readFileSync(otherSkill,'utf8'),'Unrelated user skill\n');
   for(const file of ['AGENTS.md','WORLD-API.md'])assert.equal(occurrences(readFileSync(join(cwd,file),'utf8'),AGENT_PREFAB_GUIDANCE),1,file+' must carry the single shared native guide');
+  for(const file of ['AGENTS.md','WORLD-API.md'])for(const skill of CREATOR_SKILLS)assert.ok(readFileSync(join(cwd,file),'utf8').includes(skill.path),file+' discovers '+skill.name);
+  for(const skill of JSON.parse(readFileSync(join(cwd,'workspace.json'),'utf8')).skills)assert.ok(readFileSync(skill.path).length);
   const semantic=readFileSync(join(cwd,'SEMANTIC-AUTHORING.md'),'utf8');
   assert.match(semantic,/design-knowledge-index\.json/);assert.match(semantic,/knowledge_search\/read/);assert.match(semantic,/verify them against current\s+source/);
   assert.match(semantic,/Do not copy\s+private conversation history/);
@@ -102,10 +105,11 @@ test('native workspace refresh keeps authored files and cwd while supplying pref
   assert.equal(f.store.list('creator_verification').length,0);assert.equal(f.store.list('creator_build').length,0);
 });
 
-test('actual create, loaded next turn and resume RPC paths all receive the prefab reminder',async t=>{
+test('actual create, loaded next turn and resume RPC paths receive prefab and workflow reminders',async t=>{
   const f=fixture(t),first=await f.send('Create a reusable actor.'),cwd=f.transport.thread.cwd;
   assert.equal(first.run.status,'completed');assert.equal(f.transport.calls('thread/start').length,1);
   assert.equal(occurrences(f.transport.calls('thread/start')[0].params.developerInstructions,AGENT_PREFAB_REMINDER),1);
+  assert.equal(occurrences(f.transport.calls('thread/start')[0].params.developerInstructions,AGENT_WORKFLOW_REMINDER),1);
   const firstPointer=JSON.parse(readFileSync(join(cwd,'context/current.json'),'utf8')),firstContext=readFileSync(firstPointer.manifest,'utf8');
   await f.send('Tune the same actor in this already loaded session.');
   assert.equal(f.transport.calls('thread/start').length,1);assert.equal(f.transport.calls('thread/resume').length,0,'loaded sessions must get current guidance without relying on resume');
@@ -114,10 +118,12 @@ test('actual create, loaded next turn and resume RPC paths all receive the prefa
   assert.equal(f.transport.calls('thread/start').length,1);assert.equal(f.transport.calls('thread/resume').length,1);
   const resumed=f.transport.calls('thread/resume')[0].params;
   assert.equal(resumed.threadId,first.run.thread_id);assert.equal(resumed.cwd,cwd);assert.equal(occurrences(resumed.developerInstructions,AGENT_PREFAB_REMINDER),1);
+  assert.equal(occurrences(resumed.developerInstructions,AGENT_WORKFLOW_REMINDER),1);
   assert.equal(f.transport.calls('turn/start').length,3);
   for(const call of f.transport.calls('turn/start')){
     const text=call.params.input.filter(item=>item.type==='text').map(item=>item.text).join('\n');
     assert.equal(occurrences(text,AGENT_PREFAB_REMINDER),1,'each turn contains the updated reminder even with existing thread history');
+    assert.equal(occurrences(text,AGENT_WORKFLOW_REMINDER),1,'loaded sessions discover workflow skills on the next turn');
   }
   assert.equal(readFileSync(firstPointer.manifest,'utf8'),firstContext,'new turns preserve previous fixed context');
   assert.equal(f.current().head,first.run.input_revision);
@@ -127,6 +133,7 @@ for(const schema of ['creation-flat-1','creation-hierarchy-2'])test(`${schema} k
   const f=fixture(t,schema);await f.send('Review reusable objects in the current source schema.');
   const cwd=f.transport.thread.cwd,guide=readFileSync(join(cwd,'WORLD-API.md'),'utf8'),semantic=readFileSync(join(cwd,'SEMANTIC-AUTHORING.md'),'utf8');
   assert.ok(guide.startsWith('# WORLD-API: '+schema));assert.equal(guide.includes(AGENT_PREFAB_GUIDANCE),false,'native authoring rules must not replace legacy authority');
+  for(const skill of CREATOR_SKILLS)assert.ok(guide.includes(skill.path),'legacy session discovers '+skill.name);
   assert.equal(guide.includes('.atelier/catalog.json'),false);assert.equal(guide.includes('set_native_property'),false);
   assert.match(semantic,/Instance values stay independent of prefab defaults/);
   if(schema==='creation-hierarchy-2')assert.match(guide,/Saving a prefab definition does not update existing instances/);

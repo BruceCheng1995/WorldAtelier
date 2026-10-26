@@ -79,7 +79,7 @@ const server = http.createServer(async(req,res)=>{
         try{creation.admin.cookieUser(req);}catch(error){return file(res,resolve(app,'admin-login.html'),false,true,error.status??401);}
         return file(res,resolve(app,'admin.html'),false,true);
       }
-      if(['/admin-assets/admin.js','/admin-assets/admin.css','/admin-assets/admin-resource-charts.js'].includes(path)){creation.admin.cookieUser(req);return file(res,resolve(app,basename(path)),false,true);}
+      if(['/admin-assets/admin.js','/admin-assets/admin.css','/admin-assets/admin-resource-charts.js','/admin-assets/admin-token-usage.js'].includes(path)){creation.admin.cookieUser(req);return file(res,resolve(app,basename(path)),false,true);}
       return json(res,404,{error:'页面不存在'});
     }
     if (['/viewport-navigation.js','/viewport-annotations.js','/viewport-annotations.css','/native-authoring.js','/native-preview.js','/control-layout-inspector.js'].includes(path)) return file(res,resolve(app,path.slice(1)));

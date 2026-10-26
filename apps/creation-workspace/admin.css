@@ -42,3 +42,30 @@
 @media(max-width:1100px){.ai-token-summary,.ai-runtime-summary{padding:20px}.ai-token-value{font-size:36px}.ai-token-facts dd{font-size:20px}}
 @media(max-width:700px){.ai-overview-grid{grid-template-columns:1fr}.ai-runtime-summary{border-left:0;border-top:1px solid var(--line)}.ai-overview .panel-head{align-items:flex-start}.ai-overview-note{padding:13px 20px}.ai-token-value{font-size:36px}.ai-token-facts{gap:12px}}
 @media(max-width:380px){.ai-token-summary,.ai-runtime-summary{padding:18px 16px}.ai-token-value{font-size:32px}.ai-token-facts dd{font-size:18px}.ai-token-heading{font-size:11px}}
+
+/* Token analytics shares the admin shell and quota ledger. */
+.token-controls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin-bottom:20px}
+.token-controls label{margin:0;flex:1;min-width:150px;max-width:320px;font-size:11px}
+.token-controls select{max-width:100%}.token-filter-chip{font-size:11px;overflow-wrap:anywhere;color:var(--muted)}
+.token-stats .stat{min-width:0}.token-stats .stat-value{font-size:clamp(20px,2vw,32px);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.token-stats .stat-note{line-height:1.8}.token-coverage{line-height:1.9;margin-bottom:20px}
+.token-table{min-width:1120px}.token-table .token-entity{min-width:230px;max-width:340px;white-space:normal}
+.token-entity>strong{display:block;font-size:12px;overflow-wrap:anywhere}.token-entity>small{line-height:1.7;overflow-wrap:anywhere}.token-entity>.button{margin-top:9px}
+.token-number{font-variant-numeric:tabular-nums;text-align:right}.token-number>strong{font-weight:650}
+.token-table th:not(:first-child){text-align:right}.token-table td:nth-last-child(-n+2){text-align:right}
+.token-method{line-height:1.9}.token-dashboard>.footnote{margin-top:12px}
+.token-trend{padding:20px 25px}.token-trend-head{display:flex;justify-content:space-between;gap:14px;font-size:11px;margin-bottom:14px}.token-trend-head span{color:var(--muted)}
+.token-bars{display:flex;gap:5px;height:145px;border-bottom:1px solid var(--line);padding-top:25px;margin-bottom:24px}
+.token-bar-slot{flex:1;min-width:0;position:relative}.token-bar{height:100%;width:100%;border:0;background:transparent;position:relative;padding:0;display:flex;align-items:flex-end;justify-content:center;cursor:crosshair;border-bottom:2px solid #dfe5d8;border-radius:0}
+.token-bar-fill{height:var(--height);min-height:0;width:80%;max-width:65px;background:#6e9266;border-radius:3px 3px 0 0}.token-bar:hover .token-bar-fill,.token-bar:focus .token-bar-fill{background:#355f41}
+.token-day{position:absolute;top:calc(100% + 7px);width:100%;text-align:center;font-size:9px;color:var(--muted);white-space:nowrap}
+.token-tooltip{display:none;position:absolute;bottom:calc(var(--height) + 8px);left:50%;transform:translateX(-50%);padding:7px 10px;background:#244537;color:white;font-size:10px;line-height:1.7;white-space:nowrap;border-radius:5px;z-index:2;pointer-events:none;font-variant-numeric:tabular-nums}
+.token-bar:hover .token-tooltip,.token-bar:focus .token-tooltip{display:block}.token-bar-slot:first-child .token-tooltip{left:0;transform:none}.token-bar-slot:last-child .token-tooltip{left:auto;right:0;transform:none}
+.token-recent-grid{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(2,minmax(0,1fr));gap:25px;padding:0 25px 15px}
+.token-recent-main>span{font-size:11px;color:var(--muted)}.token-recent-main>strong{display:block;font-size:32px;margin:10px 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.token-recent-main>p{font-size:10px;line-height:1.9;color:var(--muted)}.token-recent-main>.token-warning{color:#96712f}
+.token-ranking h4{font-size:11px;font-weight:550;margin:0 0 7px}.token-rank-row{width:100%;display:flex;align-items:center;gap:8px;text-align:left;padding:10px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;font-size:11px;color:inherit;cursor:pointer}
+.token-rank-row:hover .token-rank-name{text-decoration:underline}.token-rank-num{font-size:10px;color:var(--muted)}.token-rank-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.token-rank-row strong{font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.token-recent .token-trend{border-top:1px solid var(--line)}
+@media(max-width:1050px){.token-recent-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.token-recent-main{grid-column:1/-1}}
+@media(max-width:620px){.token-controls label{min-width:130px;max-width:none}.token-controls{gap:10px}.token-trend{padding:18px 16px}.token-trend-head{font-size:10px}.token-bars{gap:3px}.token-recent-grid{display:block;padding:0 16px 15px}.token-ranking{margin-top:20px}.token-recent-main>strong{font-size:29px}.token-table{min-width:1080px}.token-tooltip{font-size:9px;padding:5px}.token-stats .stat-value{font-size:22px}}

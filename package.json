@@ -8,6 +8,9 @@
   },
   "scripts": {
     "start": "node tools/start-workspace.mjs",
+    "background:install": "node tools/workspace-background.mjs install",
+    "background:status": "node tools/workspace-background.mjs status",
+    "background:uninstall": "node tools/workspace-background.mjs uninstall",
     "build:runtime": "node tools/build-runtime.mjs",
     "test": "npm run test:creation:unit",
     "test:legacy": "node --test tests/e2e/central.test.mjs",

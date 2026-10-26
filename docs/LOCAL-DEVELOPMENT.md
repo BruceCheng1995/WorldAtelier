@@ -25,6 +25,18 @@
 
 如果启动进程被强制终止，可能留下 `.local/workspace-48910.start.lock`。先读取其中 PID，用 `ps -p <PID> -o pid=,command=` 核对进程，再用 `lsof -nP -iTCP:48910 -sTCP:LISTEN` 检查监听者。只有确认启动器和服务均已不存在，才删除这个对应锁文件后重新执行 `npm run dev`。不要凭文件存在就杀进程或删除数据。
 
+## macOS 后台运行与盒盖
+
+执行 `npm run background:install` 安装当前用户的 `com.worldatelier.workspace` LaunchAgent；`npm run background:status` 查看守护和 HTTP 健康状态。它在用户登录后启动，与终端和网页无关，使用同一个 48910、工程和正式数据目录。日志位于 `.local/background/stdout.log` 和 `stderr.log`，本机配置位于 `~/Library/LaunchAgents/com.worldatelier.workspace.plist`，不进入 Git。安装固定 Node 路径、工作目录和必要环境，不复制 API 密钥。
+
+安装时若正式服务已在运行，守护只监看，不重启它；原服务退出后接管。launchd 在托管启动器退出后重新拉起，重试间隔至少 15 秒。接管过程中可能短暂不可访问，不承诺任务无缝恢复；Agent 继续遵循已有执行状态核对。非本工程服务占用端口、配置不匹配或维护锁会明确拒绝启动，不换端口、不杀占用者。只有后台模式会自动清理确认已死亡且工程/端口完全匹配的启动锁；普通 `npm start` 保留上面的人工核对规则。
+
+执行 `npm run background:uninstall` 移除守护，并停止由它托管的服务；原先由其他终端启动的服务不受影响。维护停服前须先移除守护，否则服务退出会被自动重新拉起。LaunchAgent 不保证用户注销后运行；重启电脑需要登录后恢复，不能绕过 FileVault 登录。
+
+关闭网页只结束该页面的连接和浏览器内独立 Play，不取消已经交给服务器执行的 Agent 任务。Agent 等待权限或用户回答时仍正常等待。浏览器里的独立游戏不会因后台守护而转成服务器持续模拟。
+
+后台进程仍依赖 Mac 保持唤醒、供电和网络。可用 `pmset -g`、`pmset -g batt` 核对睡眠配置与供电；`caffeinate` 的空闲防睡眠不能作为盒盖一定可用的保证。Apple 支持的外接显示器盒盖使用要求连接电源和外接键鼠，见 [Apple 说明](https://support.apple.com/en-us/102501)。安装命令不会修改系统电源策略。即使系统显示 `SleepDisabled 1`，仍应在接通电源后实际盒盖，并由另一台设备访问局域网工作台确认；设置检查不能代替真实盒盖验收。
+
 ## 每次改界面前的处理约定
 
 1. 先确认用户当前 URL → 监听进程 → 服务路由 → 页面源文件。已有产品的“设计一下”“改图标”“更新界面”，默认直接修改原页面。

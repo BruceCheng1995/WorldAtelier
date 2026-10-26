@@ -38,6 +38,7 @@ import {SessionContinuations} from './session-continuations.mjs';
 import {NativeClients} from './native-clients.mjs';
 import {NativeOffline} from './native-offline.mjs';
 import {createBranchMergeDraft} from './native-merge-agent.mjs';
+import {CREATOR_SKILLS} from './agent-skill-catalog.mjs';
 
 async function readBody(req,max=512*1024,raw=false) {
   const chunks=[];let size=0;for await(const part of req){size+=part.length;if(size>max)fail(413,'请求内容过大');chunks.push(part);}
@@ -165,7 +166,7 @@ export class CreationService {
         fail(404,'市场接口不存在');
       }
       if(area==='admin'){json(res,200,await this.admin.request(req,res,parts,body));return true;}
-      if(area==='health'&&req.method==='GET'){json(res,200,{ok:true,service:'creation',registration_open:true,public_play:this.store.publicPlay===true,collaboration_access:true,schema:NATIVE_SCHEMA,supported_schemas:[NATIVE_SCHEMA,'creation-flat-1',HIERARCHY_SCHEMA],native_authoring:true,native_fine_merge:1,play_context:1,session_continuations:1,runtime_isolation:'wa-runtime-origin-1',native_clients:1,native_offline:1,ai_property_actions:1,native_editor:true,native_control_layout:true,native_shared_worlds:Boolean(this.worlds?.native),automatic_covers:true,manual_covers:true,project_management:true,annotation_context_version:4,viewport_annotations:2,agent_environment_version:1,agent_asset_files:true,creator_skills:['game-assets'],chat_settings:true,chat_access:true,chat_questions:true,export_builds:true,agent_goals:true,ai_limits_version:1,market_admin_version:1,automatic_verification:false,inbox:true,semantic_authoring:true,hierarchy_editing:this.hierarchyEditing,agent_ready:Boolean(this.agent),agent_auto_resume:Boolean(this.agent?.autoResume),worlds_ready:Boolean(this.worlds)});return true;}
+      if(area==='health'&&req.method==='GET'){json(res,200,{ok:true,service:'creation',registration_open:true,public_play:this.store.publicPlay===true,collaboration_access:true,schema:NATIVE_SCHEMA,supported_schemas:[NATIVE_SCHEMA,'creation-flat-1',HIERARCHY_SCHEMA],native_authoring:true,native_fine_merge:1,play_context:1,session_continuations:1,runtime_isolation:'wa-runtime-origin-1',native_clients:1,native_offline:1,ai_property_actions:1,native_editor:true,native_control_layout:true,native_shared_worlds:Boolean(this.worlds?.native),automatic_covers:true,manual_covers:true,project_management:true,annotation_context_version:4,viewport_annotations:2,agent_environment_version:1,agent_asset_files:true,creator_skills:CREATOR_SKILLS.map(skill=>skill.name),chat_settings:true,chat_access:true,chat_questions:true,export_builds:true,agent_goals:true,ai_limits_version:1,market_admin_version:1,automatic_verification:false,inbox:true,semantic_authoring:true,hierarchy_editing:this.hierarchyEditing,agent_ready:Boolean(this.agent),agent_auto_resume:Boolean(this.agent?.autoResume),worlds_ready:Boolean(this.worlds)});return true;}
       if(area==='auth'&&req.method==='POST'&&['register','login'].includes(p)){
         const address=req.socket.remoteAddress,attempts=this.authAttempts.get(address)?.filter(t=>t>Date.now()-60000)??[];
         if(attempts.length>60)fail(429,'登录尝试过于频繁，请稍后再试');attempts.push(Date.now());this.authAttempts.set(address,attempts);
