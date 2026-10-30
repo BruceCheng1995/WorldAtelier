@@ -1,12 +1,18 @@
 # 世界工坊 · World Atelier
 
+## Deploying a clone or opening the default projects
+
+For a deployment-only task, start with `docs/AGENT-DEPLOYMENT.md`: check the supported host and exact toolchain, run the deployment doctor, build the viewport, start the existing workbench, and verify actual default-game Play. Do not create replacement demos or modify gameplay to compensate for missing dependencies. Viewing the examples needs no Codex login; Agent creation is an optional separate setup.
+
+On another machine, the engineering root is the current clone containing this file (`git rev-parse --show-toplevel`). `/Users/chengzhi/Projects/WorldAtelier` and other author-machine paths in historical records are not installation requirements; do not create or switch to those paths on someone else's machine. The same single-workbench, native-source, permission, and isolated-test rules below still apply. Current full server execution requires macOS with `sandbox-exec`; do not describe a Node-only Linux/Windows startup as a working deployment.
+
 ## Native source framework (2026-09-09)
 
 The five existing source branches now use `creation-native-1`. Read `docs/NATIVE-FRAMEWORK-UPGRADE.md` and the native section of `docs/CREATION-PROTOCOL.md` before changing authoring, prefab inheritance, source transactions or project assembly. Complete native Godot files are the content authority; `resources/native_nodes` is an engine-derived query index, never an independently editable JSON scene. Preserve unknown native files and properties. PackedScene owns defaults, instance overrides and reset behavior; ordinary definition edits do not require individual instance upgrades. Historical flat/H2 revisions remain immutable compatibility inputs.
 
 Source commits, completed builds and explicit public game releases are separate. Native public Play resolves `playable-game` and an exact published build from `game-releases`; build completion never publishes source changes. Owner/editor and native viewer runs may use readable fixed source. Both embedded Play and new-page Web use the same canonical project and build. Native shared-authority gameplay is not implemented: reject native inputs at the old JSON authority boundary while retaining previously fixed legacy rooms. Do not describe independent native Play as shared native multiplayer.
 
-This is a new project, created from scratch at the user's explicit request on 2026-09-06. The only engineering root is `/Users/chengzhi/Projects/WorldAtelier`. The former RuntimeAtelier and runtime-atelier applications are retired; do not restore, migrate or use their code as the implementation baseline.
+This is a new project, created from scratch at the user's explicit request on 2026-09-06. In the author's development environment, the only engineering root is `/Users/chengzhi/Projects/WorldAtelier`; external deployments use their own current clone as described above. The former RuntimeAtelier and runtime-atelier applications are retired; do not restore, migrate or use their code as the implementation baseline.
 
 Read `PROJECT.md`, `docs/DEVELOPMENT-CONTEXT.md`, `docs/ARCHITECTURE.md`, `docs/PROTOCOL.md`, `packages/contracts/IMPLEMENTATION.md` and `docs/ACCEPTANCE.md` before implementing. The user rejected the prior product direction on 2026-09-07. Also read `docs/CREATION-WORKSPACE.md`, `docs/CREATION-PROTOCOL.md` and `docs/CREATION-ACCEPTANCE.md`. The six-part report is historical technical evidence, not acceptance of the new collaborative creation workflow. Further acceptance must use fresh evidence, never file presence or extrapolation from earlier runs.
 

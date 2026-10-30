@@ -8,6 +8,8 @@
   },
   "scripts": {
     "start": "node tools/start-workspace.mjs",
+    "doctor": "node tools/check-deployment.mjs",
+    "test:deployment": "node --test tests/creation/deployment-check.test.mjs",
     "background:install": "node tools/workspace-background.mjs install",
     "background:status": "node tools/workspace-background.mjs status",
     "background:uninstall": "node tools/workspace-background.mjs uninstall",

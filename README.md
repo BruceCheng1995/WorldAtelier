@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="#创作体验">创作体验</a> ·
+  <a href="#让-agent-帮你部署">让 Agent 部署</a> ·
   <a href="#本地运行">本地运行</a> ·
   <a href="#文档与开发">技术文档</a>
 </p>
@@ -68,27 +69,39 @@
 
 原生离线工作区支持基于固定版本修改、同步和冲突处理。实现细节见[原生框架](docs/NATIVE-FRAMEWORK-UPGRADE.md)、[统一游戏工程](docs/UNIFIED-GAME-RUNTIME.md)与[离线往返](docs/NATIVE-MERGE-OFFLINE-INTEGRATION.md)。
 
+## 让 Agent 帮你部署
+
+可以把这个仓库交给自己的 Agent，并直接告诉它：
+
+> 请按 README 和 docs/AGENT-DEPLOYMENT.md 在当前 clone 中部署世界工坊。先检查主机、安装准确的 Godot 和 Web 模板、执行 doctor，再构建并启动原工作台。打开已有的俄罗斯方块和兽人必须死，验证真实 Play 后把地址给我。只体验案例，不需要配置 AI 创作，也不要从零制作 demo。
+
+**Agent 请先读 [部署与案例打开指南](docs/AGENT-DEPLOYMENT.md)**，其中有固定版本下载、安装命令、环境预检、浏览器操作、完成判断和排错步骤。当前完整服务器支持 **macOS + `sandbox-exec`**；Linux/Windows/普通 Linux 容器尚无执行后端。其他机器以自己的 clone 为根目录，不使用作者文档中的本机绝对路径。
+
 ## 本地运行
 
-当前开发环境为 **macOS**。首次运行需要：
+首次运行需要：
 
 - **Node.js 24+**。
-- **Godot 4.6 stable**，以及匹配的 Web 导出模板。
+- **macOS** 和可用的 `/usr/bin/sandbox-exec`。
+- **Godot `4.6.stable.official.89cea1439` 标准版**及匹配的 Web 导出模板；Python 3、curl、zip。具体安装命令见上面的部署指南。
 - **已登录的 Codex CLI（仅 Agent 创作需要）**，通过兼容的 App Server 执行，见 [Codex 集成](docs/CODEX-INTEGRATION.md)。
 
 ```bash
+set -e
 git clone https://github.com/BruceCheng1995/WorldAtelier.git
 cd WorldAtelier
-npm install
+python3 tools/install-release-templates.py web
+npm ci
+npm run doctor
 npm run build:preview
-npm start
+WORLD_ATELIER_DISABLE_AGENT=1 npm start
 ```
 
 打开 **[世界工坊工作台](http://127.0.0.1:48910/creation-workspace.html)**。
 
 首次启动会自动安装 **9 个默认工程、11 个分支**：兽人必须死、植物大战僵尸、坦克大战、俄罗斯方块、贪吃蛇、TPS、小巷漫步、小小梦魇、塔防游戏。注册账号后就能从游戏库打开场景、预制件并点击 **Play**，无需先运行 Agent 或从零制作 demo。
 
-`build:preview` 准备编辑视口，具体游戏首次打开或 Play 时会构建，等待界面的真实构建进度即可；后续复用匹配的构建。只查看和试玩不需要 Codex 登录，可用 `WORLD_ATELIER_DISABLE_AGENT=1 npm start`。界面、创作 API、Agent 会话与 Godot Web 共用 `48910` 服务；再次启动会复用已经运行的本项目服务。
+上述命令假定正确的 Godot 已安装在 `/Applications/Godot.app`；安装在其他位置时，每次预检、构建和启动都带同一个绝对 `GODOT_BIN`，完整命令见部署指南。`doctor` 只检查环境；`build:preview` 准备编辑视口，具体游戏首次打开或 Play 时会构建，等待界面的真实构建进度即可；后续复用匹配的构建。只查看和试玩不需要 Codex 登录。界面、创作 API、Agent 会话与 Godot Web 共用 `48910` 服务；再次启动会复用已经运行的本项目服务。
 
 <details>
 <summary>工具路径与首次使用</summary>

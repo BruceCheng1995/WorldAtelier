@@ -39,7 +39,7 @@ async function main(){
   for(const candidate of ['/opt/homebrew/bin/node','/usr/local/bin/node'])if(await realpath(candidate).catch(()=>null)===await realpath(process.execPath)){node=candidate;break;}
   // Explicit non-secret runtime configuration only; authentication stays in the
   // existing user's credential store, never copied into a plist or log.
-  for(const key of ['CODEX_HOME','CODEX_BIN','GODOT_BIN','LANG','LC_ALL','WORLD_ATELIER_LAN','WORLD_ATELIER_PUBLIC_PLAY'])if(process.env[key]!==undefined)env[key]=process.env[key];
+  for(const key of ['CODEX_HOME','CODEX_BIN','GODOT_BIN','LANG','LC_ALL','WORLD_ATELIER_LAN','WORLD_ATELIER_PUBLIC_PLAY','WORLD_ATELIER_DEFAULT_PROJECTS','WORLD_ATELIER_DISABLE_AGENT','WORLD_ATELIER_EXPORT_TEMPLATES'])if(process.env[key]!==undefined)env[key]=process.env[key];
   const source=`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
