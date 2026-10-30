@@ -69,12 +69,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - suite: classic
-            games: 俄罗斯方块,兽人必须死,植物大战僵尸
-          - suite: action
-            games: 贪吃蛇,坦克大战,TPS
-          - suite: large-scenes
-            games: 小小梦魇,塔防游戏,小巷漫步
+          - suite: all-nine
+            games: 俄罗斯方块,兽人必须死,植物大战僵尸,贪吃蛇,坦克大战,TPS,小小梦魇,塔防游戏,小巷漫步
+          - suite: cold-large
+            games: 小小梦魇
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

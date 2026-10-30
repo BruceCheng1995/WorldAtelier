@@ -97,7 +97,10 @@ export class GamePlay {
     if (message.type === 'ready') {
       if (!message.capabilities?.includes('canonical-game-runtime')) { this.fail('运行工程不支持当前工作台，请重新构建'); return; }
       if (message.source_revision !== this.job?.source_revision || message.runtime_source_hash !== this.job?.runtime_source_hash) { this.fail('游戏启动清单与固定工程不匹配'); return; }
-      this.ready = true; if (this.startPacket) this.post(this.startPacket); return;
+      if(this.ready)return;
+      this.ready = true;
+      if(this.pending)this.armStartupDeadline('scene');
+      if (this.startPacket) this.post(this.startPacket); return;
     }
     if (Number.isSafeInteger(message.scene_generation)) {
       if (message.scene_generation < (this.sceneGeneration ?? 0)) return;
@@ -131,9 +134,18 @@ export class GamePlay {
     this.bindScene(scene); this.commandSeq = this.seq; this.worldContext = {...packet,document_id:scene.document_id};
     const payload = this.startPacket = {...structuredClone(packet), type:'start', seq:this.seq, document_id:scene.document_id, source_revision:scene.source_revision, selected_id:scene.selected_id ?? ''};
     let resolve, reject; const promise = new Promise((a,b)=>{resolve=a;reject=b;});
-    this.pending = {resolve,reject,promise,timer:setTimeout(()=>this.fail('游戏加载超时，请查看出包记录后重试'),180000)};
+    this.pending = {resolve,reject,promise,phase:null,timer:null};
+    this.armStartupDeadline(this.ready?'scene':'engine');
     if (this.ready) this.post(payload);
     return promise;
+  }
+  armStartupDeadline(phase){
+    if(!this.pending||this.pending.phase===phase)return;
+    clearTimeout(this.pending.timer);this.pending.phase=phase;
+    // Boot/download time must not consume the scene's initialization budget.
+    // Only the first authenticated ready packet may advance this phase.
+    this.status.textContent=phase==='engine'?'正在启动游戏…':'正在加载游戏场景…';
+    this.pending.timer=setTimeout(()=>this.fail(phase==='engine'?'游戏引擎启动超时，请查看出包记录后重试':'游戏场景加载超时，请查看出包记录后重试'),180000);
   }
   bindScene(scene, sceneGeneration=this.sceneGeneration) {
     this.boundSceneGeneration = sceneGeneration;

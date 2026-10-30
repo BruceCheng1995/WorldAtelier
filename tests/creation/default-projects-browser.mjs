@@ -14,7 +14,7 @@ if(external&&external!==origin)throw Error('External deployment checks require t
 const bootDelay=Number(process.env.WORLD_ATELIER_TEST_GAME_BOOT_DELAY_MS??0);
 assert.ok(Number.isSafeInteger(bootDelay)&&bootDelay>=0&&bootDelay<=90000,'Game boot delay must be between 0 and 90000 ms');
 const base=join(root,'.local/creation-verification/default-projects-browser');mkdirSync(base,{recursive:true});
-const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],request_failures:[],completed:false,game_boot_delay_ms:bootDelay,browser_isolation:'process_per_case'};
+const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],request_failures:[],completed:false,game_boot_delay_ms:bootDelay,browser_isolation:'context_per_case'};
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
 let child,browser,log='';
 const failedBuilds=new Map();
@@ -45,9 +45,10 @@ try{
     await wait(250);
   }
   assert.ok(healthy,'Fresh deployment did not become ready: '+log);
+  browser=await chromium.launch({channel:'chrome',headless:true,args:['--mute-audio']});
   let context,page;
   const newPage=async evidence=>{
-    await browser?.close();browser=await chromium.launch({channel:'chrome',headless:true,args:['--mute-audio']});
+    await context?.close();
     context=await browser.newContext({viewport:{width:1440,height:1000}});page=await context.newPage();
     page.setDefaultTimeout(120000);
     await page.addInitScript(()=>{
@@ -55,13 +56,17 @@ try{
       window.addEventListener('message',event=>{
         const packet=event.data;
         if(packet?.source!=='world-atelier-game'||!['ready','loaded','runtime_error','error'].includes(packet.type))return;
-        if(window.__defaultRuntimeEvidence.length<40)window.__defaultRuntimeEvidence.push({at:new Date().toISOString(),type:packet.type,source_revision:packet.source_revision,canonical_identity:packet.canonical_identity,document_id:packet.document_id,message:packet.message});
+        const frame=document.querySelector('#mainPreview iframe[title="Godot 独立游戏"]'),url=frame?.src?new URL(frame.src,location.href):null;
+        const current_frame=Boolean(frame&&event.source===frame.contentWindow&&event.origin===url?.origin&&packet.nonce===url?.searchParams.get('nonce'));
+        if(window.__defaultRuntimeEvidence.length<40)window.__defaultRuntimeEvidence.push({at:new Date().toISOString(),type:packet.type,origin:event.origin,current_frame,source_revision:packet.source_revision,canonical_identity:packet.canonical_identity,document_id:packet.document_id,message:packet.message});
       });
     });
     if(evidence){
       evidence.console=[];evidence.runtime_assets=[];
       page.on('console',message=>{const text=message.text();if(evidence.console.length<80&&(['error','warning'].includes(message.type())||/Godot Engine|WebGL|WebAssembly/.test(text)))evidence.console.push({at:new Date().toISOString(),type:message.type(),text:text.slice(0,1600)});});
-      page.on('requestfinished',request=>{const url=new URL(request.url());if(url.pathname.startsWith('/creation-runtime/')&&/\.(wasm|pck)$/.test(url.pathname)&&evidence.runtime_assets.length<20)evidence.runtime_assets.push({asset:url.pathname.split('/').at(-1),timing:request.timing()});});
+      const assets=new Map();
+      page.on('request',request=>{const url=new URL(request.url());if(url.pathname.startsWith('/creation-runtime/')&&/\.(wasm|pck)$/.test(url.pathname)&&evidence.runtime_assets.length<20){const row={asset:url.pathname.split('/').at(-1),build_id:url.pathname.split('/')[3],started_at:new Date().toISOString(),status:'pending'};assets.set(request,row);evidence.runtime_assets.push(row);}});
+      for(const event of ['requestfinished','requestfailed'])page.on(event,request=>{const row=assets.get(request);if(row)Object.assign(row,{status:event==='requestfinished'?'completed':'failed',finished_at:new Date().toISOString(),timing:request.timing(),error:request.failure()?.errorText});});
     }
     if(bootDelay)await page.route(/\/creation-runtime\/[^/]+\/build-[^/]+\/web\/index\.wasm(?:\?|$)/,async route=>{await wait(bootDelay);await route.continue().catch(()=>{});});
     page.on('pageerror',error=>report.page_errors.push(error.message));
@@ -88,8 +93,8 @@ try{
   for(const project of ordered){
     const row={name:project.name,id:project.id,started_at:new Date().toISOString()};report.games.push(row);console.log('DEFAULT_BROWSER_OPEN '+project.name);
     try{
-      // Each cold visit owns a browser process, including its GPU process;
-      // closing contexts alone can retain driver resources across cases.
+      // Keep one browser process across the full deployment run, while each
+      // visitor window starts with fresh auth/session state and game heaps.
       await newPage(row);await page.goto(origin+'/creation-workspace.html');
       await page.locator('#authMode').selectOption('login');await page.locator('#authName').fill('默认工程部署检查');await page.locator('#authPassword').fill('default-project-isolated-password');await page.locator('#authSubmit').click();
       await expect(page.locator('#gameLibrary')).toBeVisible();await expect(page.locator('#gameCards .game-card')).toHaveCount(9);
@@ -127,6 +132,7 @@ try{
         if(row.mode_transitions.at(-1)?.mode!==ui.mode)row.mode_transitions.push({...ui,at:new Date().toISOString()});
         if(ui.mode==='edit'&&row.mode_transitions.some(item=>item.mode==='preparing'))throw Error('Game returned to editing before startup: '+JSON.stringify(ui));
         const id=await page.locator('#mainPreview').getAttribute('data-game-build');
+        if(id)row.attempted_build=id;
         if(failedBuilds.get(id)?.project_id===project.id)throw Error('Canonical Play build failed: '+JSON.stringify(failedBuilds.get(id).error));
         playing=await page.locator('#playControls').evaluate((node,revision)=>node.dataset.mode==='playing'&&node.dataset.displayRevision===revision&&Number(node.dataset.tick)>10,pins.revision);
         if(playing)break;await wait(1000);

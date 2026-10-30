@@ -24,19 +24,31 @@ test('game bridge rejects foreign windows, origins, nonces and mismatched boot i
   f.emit({type:'world_state',canonical_identity:'c'.repeat(64)});assert.equal(f.errors.length,2);assert.equal(f.seen.length,0);
 });
 
-test('cold startup can outlast a mode ACK window but still fails when its own deadline expires',async t=>{
+test('engine boot and actual scene loading receive separate bounded startup deadlines',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
   const f=bridge(t),scene={document_id:'project/main/A',source_revision:'source'},packet={world_id:'preview:one',epoch:1};
   const loading=f.preview.start(scene,packet);
-  t.mock.timers.tick(60000);assert.equal(f.errors.length,0);assert.equal(f.sent.length,0);
+  t.mock.timers.tick(120000);assert.equal(f.errors.length,0);assert.equal(f.sent.length,0);
   f.emit({type:'ready',source_revision:'source',runtime_source_hash:'b'.repeat(64),capabilities:['canonical-game-runtime']});
   assert.equal(f.sent[0].type,'start');
+  t.mock.timers.tick(120000);assert.equal(f.errors.length,0,'a slow boot cannot steal time from actual scene initialization');
   f.emit({type:'loaded',seq:f.preview.commandSeq,document_id:scene.document_id,source_revision:'source'});
   await loading;assert.equal(f.preview.pending,null);
   f.preview.ready=false;f.preview.fail=GamePlay.prototype.fail;
-  const expired=assert.rejects(f.preview.start(scene,packet),/游戏加载超时/);
+  const expired=assert.rejects(f.preview.start(scene,packet),/游戏引擎启动超时/);
   t.mock.timers.tick(180001);await expired;
   assert.equal(f.seen.at(-1).type,'runtime_error');
+});
+
+test('duplicate ready packets cannot extend a pending scene deadline or send another start',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=bridge(t);f.preview.fail=GamePlay.prototype.fail;
+  const expired=assert.rejects(f.preview.start({document_id:'project/main/A',source_revision:'source'},{world_id:'preview:one',epoch:1}),/游戏场景加载超时/);
+  const ready={type:'ready',source_revision:'source',runtime_source_hash:'b'.repeat(64),capabilities:['canonical-game-runtime']};
+  t.mock.timers.tick(30000);f.emit(ready);
+  t.mock.timers.tick(120000);f.emit(ready);
+  assert.equal(f.sent.length,1);
+  t.mock.timers.tick(60001);await expired;
 });
 
 test('old scene packets cannot become current observations after a scene switch',t=>{
