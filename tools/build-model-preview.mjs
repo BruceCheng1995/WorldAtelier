@@ -24,13 +24,12 @@ async function inventory(path){
 async function run(args){
   return new Promise((resolveRun,reject)=>{
     const process=spawn(godot,args,{cwd:root,stdio:['ignore','pipe','pipe']});
-    let log='';
-    const collect=b=>{log+=b.toString();};
-    process.stdout.on('data',collect);process.stderr.on('data',collect);
+    let log='',stdout='';
+    process.stdout.on('data',b=>{stdout+=b.toString();log+=b.toString();});process.stderr.on('data',b=>{log+=b.toString();});
     process.once('error',reject);
     process.once('exit',code=>{
       if(code!==0||/SCRIPT ERROR|Parse Error|ERROR:|Export failed/.test(log))reject(Error(log));
-      else {console.log(log.trim());resolveRun(log.trim());}
+      else {console.log(log.trim());resolveRun((args.length===1&&args[0]==='--version'?stdout:log).trim());}
     });
   });
 }

@@ -2,9 +2,9 @@
 
 ## Deploying a clone or opening the default projects
 
-For a deployment-only task, start with `docs/AGENT-DEPLOYMENT.md`: check the supported host and exact toolchain, run the deployment doctor, build the viewport, start the existing workbench, and verify actual default-game Play. Do not create replacement demos or modify gameplay to compensate for missing dependencies. Viewing the examples needs no Codex login; Agent creation is an optional separate setup.
+For a deployment-only task, use `docs/CONTAINER-DEPLOYMENT.md` on Windows/Linux (Docker Desktop/WSL2 or Docker Engine), or `docs/AGENT-DEPLOYMENT.md` for native macOS. Check the actual isolation and exact toolchain, start the existing workbench, and verify actual default-game Play. Do not create replacement demos or modify gameplay to compensate for missing dependencies. Viewing the examples needs no Codex login; Agent creation is a separate setup outside the demo container profile.
 
-On another machine, the engineering root is the current clone containing this file (`git rev-parse --show-toplevel`). `/Users/chengzhi/Projects/WorldAtelier` and other author-machine paths in historical records are not installation requirements; do not create or switch to those paths on someone else's machine. The same single-workbench, native-source, permission, and isolated-test rules below still apply. Current full server execution requires macOS with `sandbox-exec`; do not describe a Node-only Linux/Windows startup as a working deployment.
+On another machine, the engineering root is the current clone containing this file (`git rev-parse --show-toplevel`). `/Users/chengzhi/Projects/WorldAtelier` and other author-machine paths in historical records are not installation requirements; do not create or switch to those paths on someone else's machine. The same single-workbench, native-source, permission, and isolated-test rules below still apply. macOS uses Seatbelt; the Linux demo profile uses actual Landlock ABI 3+ plus seccomp and rejects networked/shared workers. Windows runs that profile in a Linux container, not an unprotected native Windows process. Never turn off isolation to claim a successful deployment.
 
 ## Native source framework (2026-09-09)
 

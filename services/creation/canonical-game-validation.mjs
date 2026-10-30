@@ -8,6 +8,7 @@ import {projectPolicyInventory} from './project-policy.mjs';
 import {prepareExecutionEnvironment} from './execution-environment.mjs';
 import {NATIVE_SCHEMA} from './native-source.mjs';
 import {NATIVE_RUNTIME_DIRECTORY} from './native-snapshot.mjs';
+import {createGodotErrorScanner} from '../../tools/godot-diagnostics.mjs';
 
 export const GAME_VALIDATION_CONTRACT='world-atelier-canonical-game-validation-v1';
 const SMOKE_TICKS=120;
@@ -161,13 +162,13 @@ export class CanonicalGameValidation {
  run(invocation,signal){
   if(this.closing||signal?.aborted)return Promise.reject(Error('统一游戏检查已经取消'));
   return new Promise((done,reject)=>{
-   const child=spawn(invocation.command,invocation.args,{...invocation.options,stdio:['ignore','pipe','pipe'],detached:process.platform!=='win32'});this.children.add(child);let output='',had_error=false,scan='',stdoutLine='',entry_ready=null,last_scene_ready=null,scene_ready_count=0,timed_out=false;
+   const child=spawn(invocation.command,invocation.args,{...invocation.options,stdio:['ignore','pipe','pipe'],detached:process.platform!=='win32'});this.children.add(child);let output='',stdoutLine='',entry_ready=null,last_scene_ready=null,scene_ready_count=0,timed_out=false;const errors=createGodotErrorScanner();
    const kill=()=>{try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}};
-   const collect=bytes=>{const part=bytes.toString();had_error ||= /SCRIPT ERROR|Parse Error|ERROR:|STANDALONE_FAILED|STANDALONE_RUNTIME_FAULT/.test(scan+part);scan=(scan+part).slice(-64);output=(output+part).slice(-1024*1024);};
-   child.stdout.on('data',bytes=>{collect(bytes);stdoutLine+=bytes.toString();const lines=stdoutLine.split('\n');stdoutLine=lines.pop().slice(-1024*1024);for(const line of lines)if(line.startsWith('STANDALONE_READY ')){try{const ready=JSON.parse(line.slice('STANDALONE_READY '.length));entry_ready??=ready;last_scene_ready=ready;scene_ready_count++;}catch{}}});child.stderr.on('data',collect);signal?.addEventListener('abort',kill,{once:true});
+   const collect=(bytes,stream)=>{const part=bytes.toString();errors.push(part,stream);output=(output+part).slice(-1024*1024);};
+   child.stdout.on('data',bytes=>{collect(bytes,'stdout');stdoutLine+=bytes.toString();const lines=stdoutLine.split('\n');stdoutLine=lines.pop().slice(-1024*1024);for(const line of lines)if(line.startsWith('STANDALONE_READY ')){try{const ready=JSON.parse(line.slice('STANDALONE_READY '.length));entry_ready??=ready;last_scene_ready=ready;scene_ready_count++;}catch{}}});child.stderr.on('data',bytes=>collect(bytes,'stderr'));signal?.addEventListener('abort',kill,{once:true});
    const timer=setTimeout(()=>{timed_out=true;kill();},45000);
    const cleanup=()=>{clearTimeout(timer);signal?.removeEventListener('abort',kill);this.children.delete(child);};
-   child.once('error',error=>{cleanup();reject(error);});child.once('close',(code,exit_signal)=>{cleanup();done({code,signal:exit_signal,timed_out,had_error,entry_ready,last_scene_ready,scene_ready_count,output});});
+   child.once('error',error=>{cleanup();reject(error);});child.once('close',(code,exit_signal)=>{cleanup();done({code,signal:exit_signal,timed_out,had_error:errors.finish(),entry_ready,last_scene_ready,scene_ready_count,output});});
   });
  }
  async close(){this.closing=true;for(const child of this.children)try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}await Promise.allSettled([...this.pending]);}

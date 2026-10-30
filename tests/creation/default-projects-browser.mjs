@@ -8,6 +8,8 @@ import {resolve,join} from 'node:path';
 import {chromium,expect} from '@playwright/test';
 
 const root=resolve(import.meta.dirname,'../..'),port=48921,origin=`http://127.0.0.1:${port}`;
+const external=process.env.WORLD_ATELIER_TEST_EXTERNAL_ORIGIN;
+if(external&&external!==origin)throw Error('External deployment checks require the isolated http://127.0.0.1:48921 origin');
 const base=join(root,'.local/creation-verification/default-projects-browser');mkdirSync(base,{recursive:true});
 const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],completed:false};
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
@@ -24,14 +26,17 @@ async function waitForEditor(page,{projectId,revision,documentId}){
   }
   throw Error('Pinned editor did not load: '+JSON.stringify({projectId,revision,documentId,observed}));
 }
-const free=createServer();await new Promise((done,reject)=>{free.once('error',reject);free.listen(port,'127.0.0.1',done);});await new Promise(done=>free.close(done));
+if(!external){const free=createServer();await new Promise((done,reject)=>{free.once('error',reject);free.listen(port,'127.0.0.1',done);});await new Promise(done=>free.close(done));}
 console.log('DEFAULT_BROWSER_EVIDENCE '+data);
 try{
-  child=spawn(process.execPath,['tools/start-workspace.mjs'],{cwd:root,env:{...process.env,WORLD_ATELIER_PREVIEW_PORT:String(port),WORLD_ATELIER_PREVIEW_DATA:join(data,'preview'),WORLD_ATELIER_CREATION_DATA:join(data,'creation'),WORLD_ATELIER_PUBLIC_PLAY:'1',WORLD_ATELIER_DEFAULT_PROJECTS:'1',WORLD_ATELIER_LAN:'0',WORLD_ATELIER_DISABLE_AGENT:'1',WORLD_ATELIER_DISABLE_WORLDS:'1'},stdio:['ignore','pipe','pipe']});
-  child.stdout.on('data',bytes=>{log+=bytes;});child.stderr.on('data',bytes=>{log+=bytes;});
+  if(!external){
+    child=spawn(process.execPath,['tools/start-workspace.mjs'],{cwd:root,env:{...process.env,WORLD_ATELIER_PREVIEW_PORT:String(port),WORLD_ATELIER_PREVIEW_DATA:join(data,'preview'),WORLD_ATELIER_CREATION_DATA:join(data,'creation'),WORLD_ATELIER_PUBLIC_PLAY:'1',WORLD_ATELIER_DEFAULT_PROJECTS:'1',WORLD_ATELIER_LAN:'0',WORLD_ATELIER_DISABLE_AGENT:'1',WORLD_ATELIER_DISABLE_WORLDS:'1'},stdio:['ignore','pipe','pipe']});
+    child.stdout.on('data',bytes=>{log+=bytes;});child.stderr.on('data',bytes=>{log+=bytes;});
+  }
+  report.external_service=Boolean(external);
   let healthy=false;
   for(let i=0;i<600;i++){
-    if(child.exitCode!==null)throw Error(log);
+    if(child&&child.exitCode!==null)throw Error(log);
     try{const health=await fetch(origin+'/creation-api/health',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());if(health.ok){assert.equal(health.default_projects.count,9);healthy=true;break;}}catch{}
     await wait(250);
   }
@@ -45,7 +50,7 @@ try{
     if(/\/creation-api\/builds\/[^/]+$/.test(response.url()))try{const {job}=await response.json();if(job?.status==='failed')failedBuilds.set(job.id,{error:job.error,project_id:job.project_id,source_revision:job.source_revision,purpose:job.purpose});}catch{}
   });
   await page.goto(origin+'/creation-workspace.html');
-  await page.locator('#authMode').selectOption('register');
+  await page.locator('#authMode').selectOption(process.env.WORLD_ATELIER_TEST_REUSE_ACCOUNT==='1'?'login':'register');
   await page.locator('#authName').fill('默认工程部署检查');await page.locator('#authPassword').fill('default-project-isolated-password');await page.locator('#authSubmit').click();
   await expect(page.locator('#gameCards .game-card')).toHaveCount(9);
   await expect(page.locator('#gameCards .game-role').filter({hasText:'默认工程'})).toHaveCount(9);
@@ -105,8 +110,8 @@ try{
       row.build_identity=await page.evaluate(async id=>{
         const response=await fetch(`/creation-api/builds/${id}`,{headers:{authorization:'Bearer '+sessionStorage.getItem('world-atelier-creator-token')}});
         const result=await response.json();if(!response.ok)throw Error(JSON.stringify(result));
-        const {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status}=result.job;
-        return {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status};
+        const {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status,toolchain_identity}=result.job;
+        return {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status,execution:toolchain_identity?.execution??null};
       },row.build);
       assert.equal(row.build_identity.project_id,project.id);assert.equal(row.build_identity.branch_id,'main');
       assert.equal(row.build_identity.source_revision,pins.revision);assert.equal(row.build_identity.entry_scene_id,fixed.resource_id);

@@ -111,7 +111,7 @@ test('a complete prerequisite fixture is classified without writing source or cr
 
 test('unsupported hosts and old Node versions are explicit failures, not successful deployment', async t => {
   const f = fixture(t);
-  for (const platform of ['linux', 'win32']) {
+  for (const platform of ['freebsd', 'win32']) {
     const report = await f.run({platform}); assert.equal(report.ok, false);
     assert.equal(result(report, 'host').status, 'fail'); assert.match(result(report, 'host').detail, new RegExp(platform));
     assert.equal(result(report, 'execution_isolation'), undefined);

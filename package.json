@@ -23,6 +23,7 @@
     "start:preview": "node tools/start-workspace.mjs",
     "dev": "node tools/start-workspace.mjs",
     "build:preview": "node tools/build-model-preview.mjs",
+    "build:linux-sandbox": "node tools/build-linux-sandbox.mjs",
     "admin:bind": "node tools/configure-admin.mjs",
     "test:admin": "node --test tests/creation/admin-independent.test.mjs"
   },

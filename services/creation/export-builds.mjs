@@ -19,6 +19,8 @@ import {createFileIdentityCache} from './file-identity.mjs';
 import {snapshotImportedProject,verifyImportedFiles} from './build-import-snapshot.mjs';
 import {closeNativeEditorContent} from './native-editor-content.mjs';
 import {isPrefabTest,isPrefabPreviewEntry} from './prefab-tests.mjs';
+import {linuxExecutionIdentity} from './linux-execution.mjs';
+import {createGodotErrorScanner} from '../../tools/godot-diagnostics.mjs';
 
 const KIND='creator_build';
 const WEB_COMPATIBILITY_POLICY='world-atelier-single-thread-local-http-v1';
@@ -138,7 +140,7 @@ export class CreationBuilds {
     return projectPolicyInventory(this.service.root).sha256;
   }
   toolchainIdentity(targets){
-    return {godot:fileIdentity(this.godot),godot_bundle:engineBundleIdentity(this.godot),templates:Object.fromEntries(targets.map(target=>[target,fileIdentity(join(this.templates,TARGETS.find(t=>t.id===target).template))]))};
+    return {godot:fileIdentity(this.godot),godot_bundle:engineBundleIdentity(this.godot),templates:Object.fromEntries(targets.map(target=>[target,fileIdentity(join(this.templates,TARGETS.find(t=>t.id===target).template))])),...(process.platform==='linux'?{execution:linuxExecutionIdentity()}:{})};
   }
   nativeThumbnailRendererIdentity(){
     // Read-only cache identity: never pin a job or export a project just to
@@ -393,7 +395,7 @@ export class CreationBuilds {
     }
     return snapshot;
   }
-  async command(job,bin,args,cwd,{allowErrors=false,timeout=600000,signing=false,isolatedProject=null,importing=false,readPaths=[],writePaths=[],selfContained=false,requiredMarker=null}={}){
+  async command(job,bin,args,cwd,{allowEditorRidLeaks=false,timeout=600000,signing=false,isolatedProject=null,importing=false,readPaths=[],writePaths=[],selfContained=false,requiredMarker=null}={}){
     if(this.closing)throw Error('后台执行中断');
     this.executionUser(job);this.verifyToolchain(job);
     const allowed=['PATH','HOME','TMPDIR','LANG','LC_ALL','USER','LOGNAME','DISPLAY','XDG_RUNTIME_DIR'];
@@ -426,16 +428,17 @@ export class CreationBuilds {
       invocation=environment.command(executable,args,{godot:true,projectPath:isolatedProject});
     }
     return await new Promise((done,reject)=>{
-      const child=this.child=spawn(invocation.command,invocation.args,{...invocation.options,stdio:['ignore','pipe','pipe'],detached:process.platform!=='win32'});this.onChild?.(child.pid);let log='',hadError=false,scanTail='',markerObserved=false;
-      const collect=data=>{const text=data.toString();if(requiredMarker&&(scanTail+text).includes(requiredMarker))markerObserved=true;hadError ||= /SCRIPT ERROR|Parse Error|ERROR:|Export failed|STANDALONE_RUNTIME_FAULT/.test(scanTail+text);scanTail=(scanTail+text).slice(-32);log=(log+text).slice(-32000);};
-      child.stdout.on('data',collect);child.stderr.on('data',collect);
+      const child=this.child=spawn(invocation.command,invocation.args,{...invocation.options,stdio:['ignore','pipe','pipe'],detached:process.platform!=='win32'});this.onChild?.(child.pid);let log='',stdout='',scanTail='',markerObserved=false;const errors=createGodotErrorScanner({allowEditorRidLeaks});
+      const collect=stream=>data=>{const text=data.toString();if(stream==='stdout')stdout=(stdout+text).slice(-32000);if(requiredMarker&&(scanTail+text).includes(requiredMarker))markerObserved=true;errors.push(text,stream);scanTail=(scanTail+text).slice(-32);log=(log+text).slice(-32000);};
+      child.stdout.on('data',collect('stdout'));child.stderr.on('data',collect('stderr'));
       const kill=()=>{try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}};
       const timer=setTimeout(kill,timeout);
       child.once('error',error=>{clearTimeout(timer);this.child=null;reject(error);});
       child.once('close',async(code,signal)=>{
+        const hadError=errors.finish();
         clearTimeout(timer);this.child=null;this.onChild?.(null);
         await writeFile(join(this.directory,job.id,'worker.log'),this.cleanError(log),{flag:'a'}).catch(()=>{});
-        if(code!==0||!allowErrors&&hadError)reject(Error(log||`执行器退出 ${signal??code}`));else if(requiredMarker&&!markerObserved)reject(Error('Godot 未确认固定场景加载成功：'+requiredMarker));else done(log);
+        if(code!==0||hadError)reject(Error(log||`执行器退出 ${signal??code}`));else if(requiredMarker&&!markerObserved)reject(Error('Godot 未确认固定场景加载成功：'+requiredMarker));else done(bin===this.godot&&args.length===1&&args[0]==='--version'?stdout:log);
       });
     });
   }

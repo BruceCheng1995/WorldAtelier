@@ -75,11 +75,24 @@
 
 > 请按 README 和 docs/AGENT-DEPLOYMENT.md 在当前 clone 中部署世界工坊。先检查主机、安装准确的 Godot 和 Web 模板、执行 doctor，再构建并启动原工作台。打开已有的俄罗斯方块和兽人必须死，验证真实 Play 后把地址给我。只体验案例，不需要配置 AI 创作，也不要从零制作 demo。
 
-**Agent 请先读 [部署与案例打开指南](docs/AGENT-DEPLOYMENT.md)**，其中有固定版本下载、安装命令、环境预检、浏览器操作、完成判断和排错步骤。当前完整服务器支持 **macOS + `sandbox-exec`**；Linux/Windows/普通 Linux 容器尚无执行后端。其他机器以自己的 clone 为根目录，不使用作者文档中的本机绝对路径。
+**Agent 请先选择主机对应的路径**：[Windows / Linux 容器部署](docs/CONTAINER-DEPLOYMENT.md)或 [macOS 原生部署](docs/AGENT-DEPLOYMENT.md)。指南包含安装、环境预检、打开案例和实际 Play 的完成判断。其他机器以自己的 clone 为根目录，不使用作者文档中的本机绝对路径。
+
+## Windows / Linux 快速运行
+
+Windows 使用 Docker Desktop 的 Linux 容器/WSL2，Linux 使用 Docker Engine 与 Compose v2。主机准备 Git 和 Docker 即可，镜像会安装固定 Node、Godot 和 Web 模板。
+
+```text
+git clone https://github.com/BruceCheng1995/WorldAtelier.git
+cd WorldAtelier
+docker compose up -d --build --wait
+docker compose exec -T worldatelier node tools/check-deployment.mjs --json
+```
+
+随后打开 **[工作台](http://127.0.0.1:48910/creation-workspace.html)**，注册并浏览现成工程。案例镜像启用场景、预制件浏览和真实独立 Play，AI 执行器与联网共享世界关闭，无需 Codex 登录。完整的内核要求、数据保留、停止和排错见 [容器部署指南](docs/CONTAINER-DEPLOYMENT.md)。
 
 ## 本地运行
 
-首次运行需要：
+以下是 macOS 原生部署；Windows/Linux 使用上面的容器入口。首次运行需要：
 
 - **Node.js 24+**。
 - **macOS** 和可用的 `/usr/bin/sandbox-exec`。
@@ -126,6 +139,7 @@ WORLD_ATELIER_DISABLE_AGENT=1 npm start
 
 - [创作工作台](docs/CREATION-WORKSPACE.md)：场景、预制件、协作与会话交互。
 - [默认工程分发](docs/DEFAULT-PROJECTS.md)：收录范围、部署行为及更新方法。
+- [Windows / Linux 部署](docs/CONTAINER-DEPLOYMENT.md)：同一容器镜像和默认案例；[macOS 原生部署](docs/AGENT-DEPLOYMENT.md)保留完整本机执行器配置。
 - [试玩上下文](docs/CREATION-NEXT-WAVE-2026-10-23.md) · [视口批注](docs/VIEWPORT-ANNOTATIONS.md)：把操作、画面和空间意图交给 Agent。
 - [Agent 执行环境](docs/AGENT-ENVIRONMENTS.md) · [资产工作流](docs/AGENT-ASSET-WORKFLOW.md)：固定工程、开发工具与素材处理。
 - [工程导航](PROJECT.md) · [开发约定](AGENTS.md)：架构、实现与验证入口。

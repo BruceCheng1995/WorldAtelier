@@ -14,7 +14,7 @@
 
 ## 部署与体验
 
-按 README 安装 Node.js、Godot 4.6 及匹配 Web 模板，执行 `npm install`、`npm run build:preview`、`npm start`。48910 服务首次启动在监听前安装默认工程，注册后直接显示现成内容。无需 Codex 登录即可查看和试玩；仅在使用 Agent 创作时需要配置执行器。当前支持范围仍以 README 的本机/macOS 环境为准，这次不新增云托管或跨平台运行后端。
+macOS 原生按 README 安装 Node.js、Godot 4.6 及匹配 Web 模板，执行 `npm ci`、`npm run build:preview`、`npm start`；Windows/Linux 使用 [同一容器部署](CONTAINER-DEPLOYMENT.md)。48910 服务首次启动在监听前安装默认工程，注册后直接显示现成内容。无需 Codex 登录即可查看和试玩；仅在使用 Agent 创作时需要另外配置执行器。案例镜像关闭 AI 与联网共享世界，保留原生场景浏览和独立 Play。
 
 所有已注册用户对默认工程获得派生的 `viewer` 权限，可看场景、预制件与游戏知识，并按固定源版本构建独立 Play。首次场景预览和 Play 可能需要等待 Godot 构建，后续使用既有缓存。普通项目的公共 `player` 仍只运行显式发布的固定游戏构建；安装和构建默认工程均不创建公开发行或共享世界。
 

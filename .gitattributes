@@ -1,0 +1,20 @@
+*.gzpart -text
+*.glb -text
+*.ttf -text
+*.png -text
+*.jpg -text
+*.gif -text
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.c text eol=lf
+*.gd text eol=lf
+*.uid text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+*.cfg text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+Dockerfile text eol=lf

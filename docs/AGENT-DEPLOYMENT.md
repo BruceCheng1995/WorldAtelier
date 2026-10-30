@@ -2,11 +2,13 @@
 
 这份指南面向第一次拿到仓库的 Agent。目标是把现有的 9 个工程、11 个分支打开给用户看；不需要先创作新游戏，也不需要 AI 服务凭据。
 
+**Windows / Linux 请先使用 [容器部署指南](CONTAINER-DEPLOYMENT.md)**。镜像会准备工具链和每次 Godot 执行的隔离。下面保留 macOS 原生部署步骤，不应把这些系统路径和安装命令照搬到其他主机。
+
 所有命令都在**当前 clone 的根目录**执行。其他文档中的 `/Users/chengzhi/Projects/WorldAtelier` 是作者开发机器的位置，不是安装要求。先用 `pwd` 和 `git rev-parse --show-toplevel` 确认自己的目录，保留其中已有的工作。
 
 ## 1. 先确认主机和任务范围
 
-完整服务器目前需要 **macOS**，因为原生场景导入、预览和 Play 使用 `/usr/bin/sandbox-exec` 执行隔离。Linux、Windows、WSL 和普通 Linux 容器目前没有对应后端，不能仅装 Node/Godot 就宣称可运行，也不要删除隔离检查绕过它。浏览器访问端与服务器主机是两回事。
+本页的原生部署需要 **macOS**，因为它使用 `/usr/bin/sandbox-exec` 执行隔离。Windows/WSL/Linux 的案例部署使用同一 Linux 容器及 Landlock/seccomp 后端，按上面的专用指南执行；不能仅装 Node/Godot 就宣称可运行，也不要删除隔离检查绕过它。浏览器访问端与服务器主机是两回事。
 
 当前入口适用于本机或局域网。公网域名、反向代理和云托管不属于这条已验证的部署路径；不要为了打开案例另建端口或另一套应用。
 

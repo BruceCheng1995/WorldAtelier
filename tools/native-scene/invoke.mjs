@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp, readFile, writeFile, rm, realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {godotErrorLines,createGodotErrorScanner} from '../godot-diagnostics.mjs';
 
 export const NATIVE_SCENE_PROTOCOL = 'wa-native-scene-1';
 export class NativeSceneError extends Error {
@@ -32,15 +33,15 @@ export async function importNativeProject({projectDirectory,godotPath='/opt/home
     const command=environment?environment.command(godotPath,args,{godot:true,projectPath:candidate,logName:'native-import.log'}):{command:godotPath,args,options:{cwd:candidate}};
     const run=await new Promise((resolve,reject)=>{
       const child=spawn(command.command,command.args,{...command.options,stdio:['ignore','pipe','pipe'],signal});
-      let stdout='',stderr='',overflow=false,timedOut=false;
-      const collect=(name)=>(bytes)=>{if(name==='stdout') stdout+=bytes;else stderr+=bytes;if(stdout.length+stderr.length>16*1024*1024){overflow=true;child.kill('SIGKILL');}};
+      let stdout='',stderr='',overflow=false,timedOut=false;const errors=createGodotErrorScanner({allowEditorRidLeaks:true});
+      const collect=(name)=>(bytes)=>{errors.push(bytes.toString(),name);if(name==='stdout') stdout+=bytes;else stderr+=bytes;if(stdout.length+stderr.length>16*1024*1024){overflow=true;child.kill('SIGKILL');}};
       child.stdout.on('data',collect('stdout'));child.stderr.on('data',collect('stderr'));
       const timer=setTimeout(()=>{timedOut=true;child.kill('SIGKILL');},timeoutMs);
       child.once('error',error=>{clearTimeout(timer);reject(error);});
-      child.once('close',(code,signal)=>{clearTimeout(timer);resolve({code,signal,stdout,stderr,overflow,timedOut});});
+      child.once('close',(code,signal)=>{clearTimeout(timer);resolve({code,signal,stdout,stderr,overflow,timedOut,hadError:errors.finish()});});
     });
-    const unsafeErrors=run.stderr.split('\n').filter(line=>/^(?:SCRIPT ERROR|ERROR):/.test(line) && !/^ERROR: \d+ RID allocations .* were leaked at exit\.$/.test(line));
-    if (run.code!==0 || run.overflow || run.timedOut || unsafeErrors.length) throw new NativeSceneError(unsafeErrors.join('\n') || (run.timedOut?'Native project import timed out':'Native project import failed'),{run});
+    const unsafeErrors=godotErrorLines(run.stderr,{allowEditorRidLeaks:true});
+    if (run.code!==0 || run.overflow || run.timedOut || run.hadError || unsafeErrors.length) throw new NativeSceneError(unsafeErrors.join('\n') || (run.timedOut?'Native project import timed out':'Native project import failed'),{run});
     return {ok:true,protocol:NATIVE_SCENE_PROTOCOL,diagnostics:{stdout:run.stdout,stderr:run.stderr}};
   } finally {await rm(work,{recursive:true,force:true});}
 }
@@ -75,25 +76,26 @@ export async function invokeNativeScene({projectDir, request, godot='/opt/homebr
     const command=environment?environment.command(godot,args,{godot:true,projectPath:candidate,logName:'native-scene.log'}):{command:godot,args,options:{cwd:candidate}};
     const run=await new Promise((resolve,reject)=>{
       const child=spawn(command.command,command.args,{...command.options,stdio:['ignore','pipe','pipe'],signal});
-      let stdout='',stderr='',overflow=false,timedOut=false;
+      let stdout='',stderr='',overflow=false,timedOut=false;const errors=createGodotErrorScanner({allowEditorRidLeaks:true});
       const collect=(name)=>(bytes)=>{
+        errors.push(bytes.toString(),name);
         if (name==='stdout') stdout+=bytes; else stderr+=bytes;
         if (stdout.length+stderr.length>8*1024*1024) {overflow=true; child.kill('SIGKILL');}
       };
       child.stdout.on('data',collect('stdout')); child.stderr.on('data',collect('stderr'));
       const timer=setTimeout(()=>{timedOut=true; child.kill('SIGKILL');},timeoutMs);
       child.once('error',error=>{clearTimeout(timer);reject(error);});
-      child.once('close',(code,signal)=>{clearTimeout(timer);resolve({code,signal,stdout,stderr,overflow,timedOut});});
+      child.once('close',(code,signal)=>{clearTimeout(timer);resolve({code,signal,stdout,stderr,overflow,timedOut,hadError:errors.finish()});});
     });
     let result;
     try { result=JSON.parse(await readFile(responseFile,'utf8')); } catch { /* Missing response is always failure, including GDScript parse failures returning exit 0. */ }
-    if (run.code!==0 || run.overflow || run.timedOut || !result || result.protocol!==NATIVE_SCENE_PROTOCOL || !result.ok) {
+    if (run.code!==0 || run.overflow || run.timedOut || run.hadError || !result || result.protocol!==NATIVE_SCENE_PROTOCOL || !result.ok) {
       throw new NativeSceneError(result?.errors?.map(x=>x.message).join('; ') || (run.timedOut?'Native scene operation timed out':'Native scene engine did not produce a successful response'), {result,run});
     }
     // Startup/parse errors may occur before the adapter's Logger is registered.
     // Godot editor teardown emits known RID warnings after a valid result; they
     // are kept in diagnostics and do not establish a scene load or save failure.
-    const unsafeErrors=run.stderr.split('\n').filter(line=>/^(?:SCRIPT ERROR|ERROR):/.test(line) && !/^ERROR: \d+ RID allocations .* were leaked at exit\.$/.test(line));
+    const unsafeErrors=godotErrorLines(run.stderr,{allowEditorRidLeaks:true});
     if (unsafeErrors.length) throw new NativeSceneError(unsafeErrors.join('\n'),{result,run});
     return {...result, diagnostics:{stdout:run.stdout,stderr:run.stderr}};
   } finally { await rm(work,{recursive:true,force:true}); }

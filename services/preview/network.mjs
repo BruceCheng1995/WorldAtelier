@@ -12,6 +12,8 @@ export function workspaceNetwork(port, env=process.env) {
   // Alternate ports remain private unless an isolated test explicitly opts in.
   const lan=env.WORLD_ATELIER_LAN===undefined?port===48910:env.WORLD_ATELIER_LAN==='1';
   const publicPlay=env.WORLD_ATELIER_PUBLIC_PLAY===undefined?port===48910:env.WORLD_ATELIER_PUBLIC_PLAY==='1';
+  const listenHost=env.WORLD_ATELIER_LISTEN_HOST??(lan?'0.0.0.0':'127.0.0.1');
+  if(!['0.0.0.0','127.0.0.1'].includes(listenHost))throw Error('WORLD_ATELIER_LISTEN_HOST 只能为 0.0.0.0 或 127.0.0.1');
   const addresses=()=>Object.entries(networkInterfaces()).filter(([name])=>! /^(utun|tun|tap)/.test(name)).flatMap(([,rows])=>rows.filter(row=>!row.internal&&row.family==='IPv4').map(row=>row.address));
   const hosts=()=>new Set(['127.0.0.1','localhost','[::1]',...(lan?[hostname().toLowerCase(),...addresses()]:[])]);
   const requestOrigin=req=>{
@@ -39,6 +41,6 @@ export function workspaceNetwork(port, env=process.env) {
     if(!runtimeAddresses().includes(address))throw Error('无法确定当前连接的隔离运行地址');
     return address==='127.0.0.1'?loopbackRuntime:mappedRuntimeOrigin(origin,address);
   };
-  return {lan,publicPlay,host:lan?'0.0.0.0':'127.0.0.1',requestOrigin,runtimeRequestOrigin,runtimeOriginFor,
+  return {lan,publicPlay,host:listenHost,requestOrigin,runtimeRequestOrigin,runtimeOriginFor,
     urls:()=>[...new Set(['127.0.0.1',...(lan?addresses():[])])].map(host=>`http://${host}:${port}/creation-workspace.html`)};
 }

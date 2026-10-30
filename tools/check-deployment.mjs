@@ -22,7 +22,7 @@ export async function checkDeployment({directory=root,env=process.env,platform=p
   const checks=[],add=(id,status,detail,fix=null)=>checks.push({id,status,detail,...(fix?{fix}:{})});
   const check=(id,action,fix)=>{try{add(id,'pass',action());return true;}catch(error){add(id,'fail',error.message,fix);return false;}};
   const checkAsync=async(id,action,fix)=>{try{add(id,'pass',await action());return true;}catch(error){add(id,'fail',error.message,fix);return false;}};
-  check('host',()=>{if(platform!=='darwin')throw Error(`当前服务器执行后端不支持 ${platform}，完整部署需要 macOS`);return 'macOS';},'使用 macOS 主机；不要关闭执行隔离或把 Node 服务启动当作游戏已可运行。');
+  check('host',()=>{if(!['darwin','linux'].includes(platform))throw Error(`当前 ${platform} 宿主请使用 Docker Desktop 的 Linux 容器部署`);return platform==='darwin'?'macOS 原生':'Linux（需要实际可用的 Landlock + seccomp）';},'Windows 使用 README 的 Docker Desktop/WSL2 流程；不要把未隔离的 Node/Godot 启动当作完成部署。');
   check('node',()=>{if(Number(nodeVersion.split('.')[0])<24)throw Error(`当前 Node.js ${nodeVersion}，需要 24+`);return `Node.js ${nodeVersion}`;},'安装 Node.js 24+，确认 node --version 后重跑预检。');
   await checkAsync('sqlite',async()=>{const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(':memory:');try{db.prepare('SELECT 1').get();return 'node:sqlite 可用，无需另装数据库服务';}finally{db.close();}},'使用包含 node:sqlite 的 Node.js 24+ 官方发行版。');
   for(const [id,args,fix]of [
@@ -37,13 +37,18 @@ export async function checkDeployment({directory=root,env=process.env,platform=p
     run('/usr/bin/sandbox-exec',['-p','(version 1)(deny default)(allow process-exec sysctl-read mach-lookup file-read* file-map-executable)','/usr/bin/true']);
     return 'macOS 执行隔离可用（实际执行无写入探针）';
   },'使用支持 sandbox-exec 的 macOS 执行环境；若外层 Agent 环境禁止启动它，请在支持的主机终端执行，不移除项目隔离检查。');
+  if(platform==='linux')check('execution_isolation',()=>{
+    const capability=executionCapabilities();
+    if(!capability.available||capability.provider!=='linux-landlock-seccomp')throw Error(capability.reason??'缺少 Linux Landlock + seccomp 执行隔离');
+    return {provider:capability.provider,landlock_abi:capability.landlock_abi,network:capability.network,subprocesses:capability.subprocesses};
+  },'使用仓库 Docker 镜像，并更新 Linux/WSL/Docker Desktop 内核以提供 Landlock ABI 3+；不要启用 privileged 或关闭隔离。');
 
-  const godot=env.GODOT_BIN??'/Applications/Godot.app/Contents/MacOS/Godot';
+  const godot=env.GODOT_BIN??(platform==='linux'?'/usr/local/bin/godot':'/Applications/Godot.app/Contents/MacOS/Godot');
   check('godot',()=>{
     if(!isAbsolute(godot)||!executable(godot))throw Error(`Godot 需要绝对可执行路径：${godot}`);
     const version=run(godot,['--version']);if(version!==EXPECTED_GODOT)throw Error(`Godot 版本为 ${version}，必须为 ${EXPECTED_GODOT}`);
     return {path:godot,version};
-  },'按 docs/AGENT-DEPLOYMENT.md 安装官方 4.6-stable 标准版；构建、预检和启动时使用同一 GODOT_BIN。');
+  },'容器镜像会安装固定工具链；原生部署按 docs/AGENT-DEPLOYMENT.md 安装官方 4.6-stable 标准版，构建和启动使用同一 GODOT_BIN。');
   const standardTemplates=join(userHome,platform==='darwin'?'Library/Application Support/Godot/export_templates/4.6.stable':'.local/share/godot/export_templates/4.6.stable');
   const customTemplates=env.WORLD_ATELIER_EXPORT_TEMPLATES;
   if(customTemplates!==undefined)check('export_template_path',()=>{if(!customTemplates||!isAbsolute(customTemplates))throw Error('WORLD_ATELIER_EXPORT_TEMPLATES 必须是非空绝对路径');return customTemplates;},'不使用自定义模板时移除这个变量；使用时填写模板目录的绝对路径。');
@@ -97,7 +102,7 @@ export async function checkDeployment({directory=root,env=process.env,platform=p
   },'日常部署使用默认 48910；隔离测试按 docs/LOCAL-DEVELOPMENT.md 设置独立目录。');
   if(browser){
     check('browser_test_dependency',()=>{const installed=JSON.parse(readFileSync(join(directory,'node_modules/@playwright/test/package.json'),'utf8'));if(installed.version!==lock?.packages?.['node_modules/@playwright/test']?.version)throw Error('@playwright/test 与锁定版本不一致');require.resolve('@playwright/test');return '@playwright/test 已安装';},'执行 npm ci（不要使用 --omit=dev）。');
-    check('chrome',()=>{const path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';if(!executable(path))throw Error('自动浏览器检查需要 Google Chrome');return path;},'安装 Google Chrome 后执行 npm run test:defaults:browser；仅安装 Playwright Chromium 不满足 channel: chrome。');
+    check('chrome',()=>{const path=(platform==='darwin'?['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']:['/opt/google/chrome/chrome','/usr/bin/google-chrome']).find(executable);if(!path)throw Error('自动浏览器检查需要 Google Chrome');return path;},'自动浏览器检查在装有 Node 和 Google Chrome 的主机运行；轻量案例镜像不内置浏览器。');
   }
   if(probeService){
     if(validPort){

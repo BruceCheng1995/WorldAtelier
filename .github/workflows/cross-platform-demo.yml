@@ -1,0 +1,100 @@
+name: Cross-platform default projects
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/cross-platform-defaults]
+  pull_request:
+    paths:
+      - Dockerfile
+      - compose.yaml
+      - deploy/**
+      - tools/linux-sandbox.c
+      - services/creation/**
+      - tests/creation/default-projects-browser.mjs
+permissions:
+  contents: read
+concurrency:
+  group: default-projects-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - name: Build and verify the actual isolated Linux image
+        run: |
+          docker build --target verification -t worldatelier-verification:ci .
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            --tmpfs /tmp:mode=1777 --tmpfs /app/.local:uid=1000,gid=1000,mode=0700 \
+            --volume /data -e WORLD_ATELIER_TEST_EXECUTABLE_DIRECTORY=/data \
+            -e WORLD_ATELIER_REQUIRE_LINUX_ISOLATION=1 worldatelier-verification:ci \
+            --test tests/creation/linux-execution.test.mjs tests/creation/godot-diagnostics.test.mjs
+      - name: Start an empty deployment
+        run: WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci up -d --build --wait --wait-timeout 300
+      - name: Open every default project in a real browser
+        env:
+          WORLD_ATELIER_TEST_EXTERNAL_ORIGIN: http://127.0.0.1:48921
+        run: npm run test:defaults:browser
+      - name: Preserve service diagnostics
+        if: always()
+        run: |
+          mkdir -p .local/creation-verification/container-ci
+          WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci logs --no-color > .local/creation-verification/container-ci/service.log 2>&1 || true
+          WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci down -v --remove-orphans || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-deployment-evidence
+          path: |
+            .local/creation-verification/default-projects-browser/**/report.json
+            .local/creation-verification/default-projects-browser/**/*.png
+            .local/creation-verification/container-ci/**
+  windows-wsl:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - name: Prepare an actual WSL2 Linux host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          wsl.exe --version
+          wsl.exe --install --distribution Ubuntu-24.04 --web-download --no-launch
+          wsl.exe --set-version Ubuntu-24.04 2
+          wsl.exe --distribution Ubuntu-24.04 --user root -- uname -a
+          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh install
+          $waLog = Join-Path $env:RUNNER_TEMP 'worldatelier-dockerd.log'
+          $waErrorLog = Join-Path $env:RUNNER_TEMP 'worldatelier-dockerd-error.log'
+          Start-Process -FilePath wsl.exe -ArgumentList '--distribution','Ubuntu-24.04','--user','root','--','dockerd','--host=unix:///var/run/docker.sock' -RedirectStandardOutput $waLog -RedirectStandardError $waErrorLog
+          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh build
+      - name: Use the Windows browser against the WSL2 deployment
+        env:
+          WORLD_ATELIER_TEST_EXTERNAL_ORIGIN: http://127.0.0.1:48921
+        run: npm run test:defaults:browser
+      - name: Preserve Windows and guest diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .local/creation-verification/container-ci | Out-Null
+          wsl.exe --list --verbose *> .local/creation-verification/container-ci/wsl.log
+          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh stop *> .local/creation-verification/container-ci/service.log
+          Copy-Item "$env:RUNNER_TEMP/worldatelier-dockerd*.log" .local/creation-verification/container-ci/ -ErrorAction SilentlyContinue
+          wsl.exe --terminate Ubuntu-24.04
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-wsl-deployment-evidence
+          path: |
+            .local/creation-verification/default-projects-browser/**/report.json
+            .local/creation-verification/default-projects-browser/**/*.png
+            .local/creation-verification/container-ci/**

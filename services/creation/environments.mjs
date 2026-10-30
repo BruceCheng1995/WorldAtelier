@@ -12,6 +12,7 @@ import {PROPERTY_ACTION_GUIDE,propertyActionContext,propertyActionTools} from '.
 import {attachmentReferences} from './agent-attachment-references.mjs';
 import {agentTextContext} from './agent-text-context.mjs';
 import {creatorSkillIndex} from './agent-skill-catalog.mjs';
+import {createGodotErrorScanner} from '../../tools/godot-diagnostics.mjs';
 
 const json=(path,value)=>writeFileSync(path,JSON.stringify(value,null,2)+'\n',{flag:constants.O_WRONLY|constants.O_CREAT|constants.O_TRUNC|constants.O_NOFOLLOW,mode:0o600});
 function safeDirectory(root,path){
@@ -184,13 +185,13 @@ export class CreationEnvironments {
     const command=environment.command(this.godot,args,{godot:true,projectPath:project,logName});
     return await new Promise((done,reject)=>{
       const child=spawn(command.command,command.args,{...command.options,stdio:['ignore','pipe','pipe'],detached:process.platform!=='win32'});this.children.add(child);
-      let output='',invalid=null,hadError=false,scanTail='',pendingLine='',ready=[];const collect=data=>{const text=data.toString();hadError ||= /SCRIPT ERROR|Parse Error|ERROR:/.test(scanTail+text);scanTail=(scanTail+text).slice(-32);output=(output+text).slice(-64000);pendingLine+=text;let end;while((end=pendingLine.indexOf('\n'))>=0){const line=pendingLine.slice(0,end);pendingLine=pendingLine.slice(end+1);if(line.startsWith('STANDALONE_READY '))try{ready.push(JSON.parse(line.slice(17)));ready=ready.slice(-12);}catch{}}pendingLine=pendingLine.slice(-64000);};child.stdout.on('data',collect);child.stderr.on('data',collect);
+      let output='',invalid=null,pendingLine='',ready=[];const errors=createGodotErrorScanner();const collect=stream=>data=>{const text=data.toString();errors.push(text,stream);output=(output+text).slice(-64000);if(stream!=='stdout')return;pendingLine+=text;let end;while((end=pendingLine.indexOf('\n'))>=0){const line=pendingLine.slice(0,end);pendingLine=pendingLine.slice(end+1);if(line.startsWith('STANDALONE_READY '))try{ready.push(JSON.parse(line.slice(17)));ready=ready.slice(-12);}catch{}}pendingLine=pendingLine.slice(-64000);};child.stdout.on('data',collect('stdout'));child.stderr.on('data',collect('stderr'));
       const abort=()=>{invalid=Error('环境执行已取消');kill(child);};signal?.addEventListener('abort',abort,{once:true});
       const deadline=setTimeout(()=>{invalid=Error('环境执行超过 60 秒');kill(child);},60000);
       const lease=setInterval(()=>{try{this.check(context);}catch(error){invalid=error;kill(child);}},500);lease.unref?.();
       const clean=()=>{clearTimeout(deadline);clearInterval(lease);signal?.removeEventListener('abort',abort);this.children.delete(child);};
       child.once('error',error=>{clean();reject(error);});
-      child.once('close',(code,signalName)=>{clean();json(join(environment.directories.logs,logName+'.receipt.json'),{executable:this.godot,args,exit_code:code,signal:signalName,output});if(invalid||code!==0||hadError)reject(Object.assign(invalid??Error(output||`Godot 退出 ${code??signalName}`),{output,exit_code:code}));else done({output,exit_code:code,ready});});
+      child.once('close',(code,signalName)=>{clean();const hadError=errors.finish();json(join(environment.directories.logs,logName+'.receipt.json'),{executable:this.godot,args,exit_code:code,signal:signalName,output});if(invalid||code!==0||hadError)reject(Object.assign(invalid??Error(output||`Godot 退出 ${code??signalName}`),{output,exit_code:code}));else done({output,exit_code:code,ready});});
     });
   }
   test(options){return this.track(()=>this.testOnce(options));}

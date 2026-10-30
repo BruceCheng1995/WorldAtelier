@@ -1,0 +1,15 @@
+.git
+.local
+node_modules
+**/.godot
+research
+.env
+.env.*
+output
+artifacts
+dist
+build
+**/*.sqlite*
+**/*.log
+.DS_Store
+.playwright-mcp

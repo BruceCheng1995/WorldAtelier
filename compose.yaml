@@ -1,0 +1,32 @@
+services:
+  worldatelier:
+    build:
+      context: .
+      target: application
+    image: worldatelier-demo:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WORLD_ATELIER_PORT:-48910}:${WORLD_ATELIER_PORT:-48910}"
+    environment:
+      WORLD_ATELIER_PREVIEW_PORT: "${WORLD_ATELIER_PORT:-48910}"
+    volumes:
+      - worldatelier-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=1g
+      - /app/.local:uid=1000,gid=1000,mode=0700,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 6g
+    healthcheck:
+      test: ["CMD", "node", "tools/container-health.mjs"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+volumes:
+  worldatelier-data:

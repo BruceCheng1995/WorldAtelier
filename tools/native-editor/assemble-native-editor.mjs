@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {mkdtemp,readFile,writeFile,rm,readdir,mkdir,copyFile,realpath} from 'node:fs/promises';
 import path from 'node:path';
 import {tmpdir} from 'node:os';
+import {godotErrorLines,createGodotErrorScanner} from '../godot-diagnostics.mjs';
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const toolDirectory=import.meta.dirname;
 const ignored=new Set(['.git','.godot','.atelier','node_modules']);
@@ -39,8 +40,8 @@ async function invoke({godotPath,args,candidate,work,executionEnvironment,enforc
     // diagnostic rule; keep the complete queue log and reject every other
     // engine/script/parse error. Nonzero exits are still rejected by run().
     const bake=args.includes('--script')&&args.includes(path.join(toolDirectory,'bake_preview.gd'));
-    const output=String(await run(godotPath,args,work,{isolatedProject:candidate,importing:true,readPaths:[toolDirectory,work,...extraReadPaths],writePaths:[candidate,work],selfContained:true,allowErrors:bake}));
-    const errors=output.split('\n').filter(line=>/^(ERROR|SCRIPT ERROR):/.test(line)&&!(bake&&/^ERROR: \d+ RID allocations .*were leaked at exit\.$/.test(line)));
+    const output=String(await run(godotPath,args,work,{isolatedProject:candidate,importing:true,readPaths:[toolDirectory,work,...extraReadPaths],writePaths:[candidate,work],selfContained:true,allowEditorRidLeaks:bake}));
+    const errors=godotErrorLines(output,{allowEditorRidLeaks:bake});
     if(errors.length)throw Object.assign(new Error(errors.join('\n')),{run:{code:0,stdout:output,stderr:'',timedOut:false,overflow:false}});
     return {code:0,stdout:output,stderr:"",timedOut:false,overflow:false};
   }
@@ -53,16 +54,16 @@ async function invoke({godotPath,args,candidate,work,executionEnvironment,enforc
   if(enforceIsolation&&(!environment?.capabilities?.available||typeof environment.command!=='function'))throw new Error('Native editor requires enforced build isolation');
   const command=environment?environment.command(godotPath,args,{godot:true,projectPath:candidate,logName:'native-editor.log'}):{command:godotPath,args,options:{cwd:candidate}};
   const result=await new Promise((resolve,reject)=>{
-    let stdout='',stderr='',timedOut=false,overflow=false;
+    let stdout='',stderr='',timedOut=false,overflow=false;const errors=createGodotErrorScanner({allowEditorRidLeaks:true});
     const child=spawn(command.command,command.args,{...command.options,stdio:['ignore','pipe','pipe'],signal});
-    const collect=stream=>bytes=>{if(stream==='out')stdout+=bytes;else stderr+=bytes;if(stdout.length+stderr.length>16*1024*1024){overflow=true;child.kill('SIGKILL');}};
+    const collect=stream=>bytes=>{errors.push(bytes.toString(),stream);if(stream==='out')stdout+=bytes;else stderr+=bytes;if(stdout.length+stderr.length>16*1024*1024){overflow=true;child.kill('SIGKILL');}};
     child.stdout.on('data',collect('out'));child.stderr.on('data',collect('err'));
     const timer=setTimeout(()=>{timedOut=true;child.kill('SIGKILL');},timeoutMs);
     child.once('error',error=>{clearTimeout(timer);reject(error);});
-    child.once('close',code=>{clearTimeout(timer);resolve({code,stdout,stderr,timedOut,overflow});});
+    child.once('close',code=>{clearTimeout(timer);resolve({code,stdout,stderr,timedOut,overflow,hadError:errors.finish()});});
   });
-  const errors=result.stderr.split('\n').filter(line=>/^(ERROR|SCRIPT ERROR):/.test(line)&&!/^ERROR: \d+ RID allocations .*were leaked at exit\.$/.test(line));
-  if(result.code!==0||result.timedOut||result.overflow||errors.length)throw Object.assign(new Error(errors.join('\n')||'Native editor engine build failed'),{run:result});
+  const errors=godotErrorLines(result.stderr,{allowEditorRidLeaks:true});
+  if(result.code!==0||result.timedOut||result.overflow||result.hadError||errors.length)throw Object.assign(new Error(errors.join('\n')||'Native editor engine build failed'),{run:result});
   return result;
 }
 /** Build a private, script-free static native editor project. Source is copied,

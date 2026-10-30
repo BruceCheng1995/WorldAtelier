@@ -1,0 +1,12 @@
+import {spawn} from 'node:child_process';
+import {executionCapabilities} from '../services/creation/execution-environment.mjs';
+const capability=executionCapabilities();
+if(!capability.available)throw Error('容器内隔离不可用：'+(capability.reason??JSON.stringify(capability)));
+if(process.platform!=='linux'||capability.provider!=='linux-landlock-seccomp')throw Error('此镜像需要受支持的 Linux 容器内核。');
+if(process.env.WORLD_ATELIER_DISABLE_AGENT!=='1'||process.env.WORLD_ATELIER_DISABLE_WORLDS!=='1')throw Error('案例镜像仅启用场景浏览与独立 Play；AI 执行器和联网共享世界需要另行支持的后端。');
+const args=process.argv.slice(2),command=args[0]==='doctor'?['tools/check-deployment.mjs',...args.slice(1)]:args.length?args:['tools/start-workspace.mjs'];
+if(!args.length)console.log(`Godot 隔离已启用：${capability.provider}，Landlock ABI ${capability.landlock_abi}`);
+const child=spawn(process.execPath,command,{stdio:'inherit',env:process.env});
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>child.kill(signal));
+child.on('error',error=>{console.error(error.message);process.exitCode=1;});
+child.on('exit',(code,signal)=>{process.exitCode=code??(signal?1:0);});

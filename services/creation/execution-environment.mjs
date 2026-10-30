@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import {linuxExecutionCapabilities,linuxInvocation} from './linux-execution.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const failure = (message, details) => Object.assign(new Error(message), { status: 503, code: 'EXECUTION_ENVIRONMENT_UNAVAILABLE', details });
@@ -79,6 +80,7 @@ export function verifyRuntimeSnapshot({ directory, manifest }) {
 }
 
 export function executionCapabilities() {
+  if(process.platform==='linux')return linuxExecutionCapabilities();
   const available = process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exec');
   return { version: 1, available, provider: available ? 'macos-seatbelt' : 'unsupported', file_writes: available ? 'explicit_paths' : 'unavailable', file_reads: available ? 'system_and_explicit_paths' : 'unavailable', network: available ? 'explicit_loopback_tcp_ports' : 'unavailable', host_file_metadata_readable: true, mach_service_lookup: 'host_available', private_user_data: available, inherited_host_environment: false, resource_limits: false, multi_tenant_isolation: false, subprocesses: 'denied_by_default' };
 }
@@ -102,6 +104,7 @@ export function prepareExecutionEnvironment({ directory, readPaths = [], writePa
     if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.username || url.password) throw failure('Execution network access must target an explicit loopback service origin');
     return Number(url.port || (['https:', 'wss:'].includes(url.protocol) ? 443 : 80));
   }))];
+  if(capabilities.provider==='linux-landlock-seccomp'&&ports.length)throw failure('Linux isolated builds do not allow networked workers; shared worlds require a separate supported execution backend',capabilities);
   const saves = safeSavePaths.map(canonical);
   const reads = readPaths.map(canonical), writes = [...Object.values(directories), ...writePaths.map(canonical), ...saves];
   const quote = value => JSON.stringify(value);
@@ -113,6 +116,11 @@ export function prepareExecutionEnvironment({ directory, readPaths = [], writePa
         if (!/^[A-Za-z0-9_.-]+$/.test(logName) || ['.', '..'].includes(logName)) throw failure('Invalid Godot log name');
         const separator = commandArgs.findIndex(arg => arg === '--' || arg === '++');
         commandArgs.splice(separator < 0 ? commandArgs.length : separator, 0, '--log-file', resolve(directories.logs, logName));
+      }
+      if(capabilities.provider==='linux-landlock-seccomp'){
+        if(allowSubprocesses)throw failure('Linux Godot workers do not permit subprocesses');
+        if(godot&&!commandArgs.includes('--audio-driver')){const separator=commandArgs.findIndex(arg=>arg==='--'||arg==='++');commandArgs.splice(separator<0?commandArgs.length:separator,0,'--audio-driver','Dummy');}
+        return linuxInvocation({binary,args:commandArgs,root,env,reads,writes,saves,projectPath});
       }
       const app = binary.includes('.app/') ? binary.slice(0, binary.indexOf('.app/') + 4) : binary;
       const readable = [...new Set(['/System', '/private/preboot', '/private/var/db/dyld', '/usr/lib', '/usr/share', '/usr/bin', '/bin', '/Library/Apple', '/Library/Fonts', '/Library/Preferences', '/dev', '/private/etc', app, ...reads, ...writes, ...(projectPath ? [canonical(projectPath)] : [])])];
