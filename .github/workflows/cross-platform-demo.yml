@@ -40,6 +40,12 @@ jobs:
         env:
           WORLD_ATELIER_TEST_EXTERNAL_ORIGIN: http://127.0.0.1:48921
         run: npm run test:defaults:browser
+      - name: Restart without losing accounts or fixed source
+        run: |
+          node tests/creation/container-persistence.mjs snapshot
+          WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci restart
+          WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci up -d --no-build --wait --wait-timeout 180
+          node tests/creation/container-persistence.mjs check
       - name: Preserve service diagnostics
         if: always()
         run: |
@@ -70,8 +76,9 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           wsl.exe --version
           wsl.exe --install --distribution Ubuntu-24.04 --web-download --no-launch
-          wsl.exe --set-version Ubuntu-24.04 2
-          wsl.exe --distribution Ubuntu-24.04 --user root -- uname -a
+          $waKernel = (wsl.exe --distribution Ubuntu-24.04 --user root -- uname -r | Out-String).Trim()
+          Write-Host $waKernel
+          if ($waKernel -notmatch 'WSL2') { throw "A real WSL2 kernel is required: $waKernel" }
           wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh install
           $waLog = Join-Path $env:RUNNER_TEMP 'worldatelier-dockerd.log'
           $waErrorLog = Join-Path $env:RUNNER_TEMP 'worldatelier-dockerd-error.log'
@@ -81,6 +88,13 @@ jobs:
         env:
           WORLD_ATELIER_TEST_EXTERNAL_ORIGIN: http://127.0.0.1:48921
         run: npm run test:defaults:browser
+      - name: Restart the Windows WSL2 deployment with the same data
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          node tests/creation/container-persistence.mjs snapshot
+          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash -c 'WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci restart && WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci up -d --no-build --wait --wait-timeout 180'
+          node tests/creation/container-persistence.mjs check
       - name: Preserve Windows and guest diagnostics
         if: always()
         shell: pwsh
