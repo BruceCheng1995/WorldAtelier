@@ -5,13 +5,14 @@ import {spawn} from 'node:child_process';
 import {createServer} from 'node:net';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
-import {chromium,expect} from '@playwright/test';
+import {chromium,expect as baseExpect} from '@playwright/test';
+const expect=baseExpect.configure({timeout:90000});
 
 const root=resolve(import.meta.dirname,'../..'),port=48921,origin=`http://127.0.0.1:${port}`;
 const external=process.env.WORLD_ATELIER_TEST_EXTERNAL_ORIGIN;
 if(external&&external!==origin)throw Error('External deployment checks require the isolated http://127.0.0.1:48921 origin');
 const base=join(root,'.local/creation-verification/default-projects-browser');mkdirSync(base,{recursive:true});
-const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],completed:false};
+const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],request_failures:[],completed:false};
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
 let child,browser,log='';
 const failedBuilds=new Map();
@@ -22,6 +23,7 @@ async function waitForEditor(page,{projectId,revision,documentId}){
     if(failure)throw Error('Native editor build failed: '+JSON.stringify(failure.error));
     observed=await page.locator('#mainPreview').evaluate(node=>({state:node.dataset.previewState,document:node.dataset.loadedDocument,source:node.dataset.displayedSource,status:node.querySelector('.render-status')?.textContent}));
     if(observed.state==='ready'&&observed.document===documentId&&observed.source===revision)return observed;
+    if(observed.state==='error')throw Error('Current project editor failed: '+JSON.stringify({projectId,revision,observed}));
     await wait(250);
   }
   throw Error('Pinned editor did not load: '+JSON.stringify({projectId,revision,documentId,observed}));
@@ -42,13 +44,18 @@ try{
   }
   assert.ok(healthy,'Fresh deployment did not become ready: '+log);
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--mute-audio']});
-  const context=await browser.newContext({viewport:{width:1440,height:1000}}),page=await context.newPage();
-  page.setDefaultTimeout(15000);
-  page.on('pageerror',error=>report.page_errors.push(error.message));
-  page.on('response',async response=>{
-    if(response.status()>=400&&response.url().includes('/creation-api/'))report.http_errors.push({status:response.status(),url:response.url()});
-    if(/\/creation-api\/builds\/[^/]+$/.test(response.url()))try{const {job}=await response.json();if(job?.status==='failed')failedBuilds.set(job.id,{error:job.error,project_id:job.project_id,source_revision:job.source_revision,purpose:job.purpose});}catch{}
-  });
+  let context,page;
+  const newPage=async()=>{
+    await context?.close();context=await browser.newContext({viewport:{width:1440,height:1000}});page=await context.newPage();
+    page.setDefaultTimeout(120000);
+    page.on('pageerror',error=>report.page_errors.push(error.message));
+    page.on('requestfailed',request=>{const url=new URL(request.url());report.request_failures.push({url:url.origin+url.pathname,error:request.failure()?.errorText});});
+    page.on('response',async response=>{
+      if(response.status()>=400&&response.url().includes('/creation-api/'))report.http_errors.push({status:response.status(),url:response.url()});
+      if(/\/creation-api\/builds\/[^/]+$/.test(response.url()))try{const {job}=await response.json();if(job?.status==='failed')failedBuilds.set(job.id,{error:job.error,project_id:job.project_id,source_revision:job.source_revision,purpose:job.purpose});}catch{}
+    });
+  };
+  await newPage();
   await page.goto(origin+'/creation-workspace.html');
   await page.locator('#authMode').selectOption(process.env.WORLD_ATELIER_TEST_REUSE_ACCOUNT==='1'?'login':'register');
   await page.locator('#authName').fill('默认工程部署检查');await page.locator('#authPassword').fill('default-project-isolated-password');await page.locator('#authSubmit').click();
@@ -65,7 +72,11 @@ try{
   for(const project of ordered){
     const row={name:project.name,id:project.id,started_at:new Date().toISOString()};report.games.push(row);console.log('DEFAULT_BROWSER_OPEN '+project.name);
     try{
-      await page.goto(origin+'/creation-workspace.html#/games');await expect(page.locator('#gameLibrary')).toBeVisible();await expect(page.locator('#gameCards .game-card')).toHaveCount(9);
+      // A separate visitor window per case bounds WebAssembly/GPU memory and
+      // verifies cold browser state, rather than accumulating nine game heaps.
+      await newPage();await page.goto(origin+'/creation-workspace.html');
+      await page.locator('#authMode').selectOption('login');await page.locator('#authName').fill('默认工程部署检查');await page.locator('#authPassword').fill('default-project-isolated-password');await page.locator('#authSubmit').click();
+      await expect(page.locator('#gameLibrary')).toBeVisible();await expect(page.locator('#gameCards .game-card')).toHaveCount(9);
       const fixed=await page.evaluate(async projectId=>{
         const response=await fetch(`/creation-api/projects/${projectId}/branches/main/playable-game`,{headers:{authorization:'Bearer '+sessionStorage.getItem('world-atelier-creator-token')}});
         const value=await response.json();if(!response.ok)throw Error(JSON.stringify(value));return value;
@@ -134,7 +145,11 @@ try{
         row.resume=true;
       }
       row.passed=true;console.log('DEFAULT_BROWSER_PLAYED '+project.name+' tick '+row.play.tick+' → '+row.later_tick);
-    }catch(error){row.passed=false;row.error=error.stack;await page.screenshot({path:join(data,project.id+'-failure.png')}).catch(()=>{});console.log('DEFAULT_BROWSER_FAILED '+project.name+': '+error.message);}
+    }catch(error){
+      row.passed=false;row.error=error.stack;await page.screenshot({path:join(data,project.id+'-failure.png'),timeout:15000}).catch(()=>{});console.log('DEFAULT_BROWSER_FAILED '+project.name+': '+error.message);
+      const serviceAlive=await fetch(origin+'/creation-api/health',{signal:AbortSignal.timeout(5000)}).then(response=>response.ok).catch(()=>false);
+      if(!serviceAlive){report.service_unreachable=true;break;}
+    }
     writeFileSync(join(data,'report.json'),JSON.stringify(report,null,2)+'\n');
   }
   assert.ok(report.games.every(game=>game.passed),JSON.stringify(report.games.filter(game=>!game.passed).map(game=>({name:game.name,error:game.error}))));

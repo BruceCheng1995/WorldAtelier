@@ -69,41 +69,43 @@ jobs:
         with:
           node-version: '24'
       - run: npm ci --no-audit --no-fund
-      - name: Prepare an actual WSL2 Linux host
+      - name: Deploy and verify from the Windows browser
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          wsl.exe --version
-          wsl.exe --install --distribution Ubuntu-24.04 --web-download --no-launch
-          $waKernel = (wsl.exe --distribution Ubuntu-24.04 --user root -- uname -r | Out-String).Trim()
-          Write-Host $waKernel
-          if ($waKernel -notmatch 'WSL2') { throw "A real WSL2 kernel is required: $waKernel" }
-          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh install
-          $waLog = Join-Path $env:RUNNER_TEMP 'worldatelier-dockerd.log'
-          $waErrorLog = Join-Path $env:RUNNER_TEMP 'worldatelier-dockerd-error.log'
-          Start-Process -FilePath wsl.exe -ArgumentList '--distribution','Ubuntu-24.04','--user','root','--','dockerd','--host=unix:///var/run/docker.sock' -RedirectStandardOutput $waLog -RedirectStandardError $waErrorLog
-          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh build
-      - name: Use the Windows browser against the WSL2 deployment
-        env:
-          WORLD_ATELIER_TEST_EXTERNAL_ORIGIN: http://127.0.0.1:48921
-        run: npm run test:defaults:browser
-      - name: Restart the Windows WSL2 deployment with the same data
-        shell: pwsh
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $true
-          node tests/creation/container-persistence.mjs snapshot
-          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash -c 'WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci restart && WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci up -d --no-build --wait --wait-timeout 180'
-          node tests/creation/container-persistence.mjs check
-      - name: Preserve Windows and guest diagnostics
-        if: always()
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force .local/creation-verification/container-ci | Out-Null
-          wsl.exe --list --verbose *> .local/creation-verification/container-ci/wsl.log
-          wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh stop *> .local/creation-verification/container-ci/service.log
-          Copy-Item "$env:RUNNER_TEMP/worldatelier-dockerd*.log" .local/creation-verification/container-ci/ -ErrorAction SilentlyContinue
-          wsl.exe --terminate Ubuntu-24.04
+          $waKeeper = $null
+          $waFailure = $null
+          try {
+            wsl.exe --version
+            wsl.exe --install --distribution Ubuntu-24.04 --web-download --no-launch
+            $waKernel = (wsl.exe --distribution Ubuntu-24.04 --user root -- uname -r | Out-String).Trim()
+            Write-Host $waKernel
+            if ($waKernel -notmatch 'WSL2') { throw "A real WSL2 kernel is required: $waKernel" }
+            # Keep the guest referenced throughout the Windows browser run;
+            # Docker is managed by guest systemd, not a transient step console.
+            $waKeeper = Start-Process -FilePath wsl.exe -ArgumentList '--distribution','Ubuntu-24.04','--user','root','--','sleep','infinity' -NoNewWindow -PassThru
+            wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh install
+            wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh build
+            $env:WORLD_ATELIER_TEST_EXTERNAL_ORIGIN = 'http://127.0.0.1:48921'
+            npm run test:defaults:browser
+            node tests/creation/container-persistence.mjs snapshot
+            wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash -c 'WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci restart && WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci up -d --no-build --wait --wait-timeout 180'
+            node tests/creation/container-persistence.mjs check
+          } catch {
+            $waFailure = $_
+          } finally {
+            $PSNativeCommandUseErrorActionPreference = $false
+            $ErrorActionPreference = 'Continue'
+            New-Item -ItemType Directory -Force .local/creation-verification/container-ci | Out-Null
+            wsl.exe --list --verbose *> .local/creation-verification/container-ci/wsl.log
+            wsl.exe --distribution Ubuntu-24.04 --user root -- docker ps -a *> .local/creation-verification/container-ci/containers.log
+            wsl.exe --distribution Ubuntu-24.04 --user root -- journalctl -u docker --no-pager *> .local/creation-verification/container-ci/docker.log
+            wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh stop *> .local/creation-verification/container-ci/service.log
+            if ($waKeeper -and -not $waKeeper.HasExited) { Stop-Process -Id $waKeeper.Id }
+            wsl.exe --terminate Ubuntu-24.04
+          }
+          if ($waFailure) { throw $waFailure }
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -8,6 +8,7 @@ case "${1:-}" in
     chmod +x /usr/sbin/policy-rc.d
     apt-get update -qq
     apt-get install -y -qq docker.io docker-buildx docker-compose-v2 curl ca-certificates
+    systemctl enable --now docker
     docker --version
     ;;
   build)

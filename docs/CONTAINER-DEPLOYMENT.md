@@ -22,6 +22,8 @@ docker info --format "{{.OSType}}"
 
 最后一项必须为 `linux`，且 Docker daemon 可以连接。Windows 使用 WSL 路径时，命令在对应 Ubuntu 终端执行；浏览器仍可在 Windows 打开。
 
+使用 Docker Desktop 时，让 Desktop 保持运行。直接在 WSL Ubuntu 中安装 Docker Engine 时，使用正常的 Docker 系统服务（例如 `sudo systemctl enable --now docker`），并在演示期间保持 WSL 会话；不要把守护进程挂在随后会退出的 Agent 临时命令窗口里。
+
 ## 克隆、构建、启动
 
 以下命令在 PowerShell、WSL 或 Linux shell 均可执行：
