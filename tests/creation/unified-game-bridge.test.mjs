@@ -24,6 +24,21 @@ test('game bridge rejects foreign windows, origins, nonces and mismatched boot i
   f.emit({type:'world_state',canonical_identity:'c'.repeat(64)});assert.equal(f.errors.length,2);assert.equal(f.seen.length,0);
 });
 
+test('cold startup can outlast a mode ACK window but still fails when its own deadline expires',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=bridge(t),scene={document_id:'project/main/A',source_revision:'source'},packet={world_id:'preview:one',epoch:1};
+  const loading=f.preview.start(scene,packet);
+  t.mock.timers.tick(60000);assert.equal(f.errors.length,0);assert.equal(f.sent.length,0);
+  f.emit({type:'ready',source_revision:'source',runtime_source_hash:'b'.repeat(64),capabilities:['canonical-game-runtime']});
+  assert.equal(f.sent[0].type,'start');
+  f.emit({type:'loaded',seq:f.preview.commandSeq,document_id:scene.document_id,source_revision:'source'});
+  await loading;assert.equal(f.preview.pending,null);
+  f.preview.ready=false;f.preview.fail=GamePlay.prototype.fail;
+  const expired=assert.rejects(f.preview.start(scene,packet),/游戏加载超时/);
+  t.mock.timers.tick(180001);await expired;
+  assert.equal(f.seen.at(-1).type,'runtime_error');
+});
+
 test('old scene packets cannot become current observations after a scene switch',t=>{
   const f=bridge(t);
   f.emit({type:'world_state',world_id:'preview:one',epoch:1,scene_revision:'source',document_id:'project/main/B',scene_generation:2});

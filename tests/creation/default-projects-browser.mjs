@@ -11,8 +11,10 @@ const expect=baseExpect.configure({timeout:90000});
 const root=resolve(import.meta.dirname,'../..'),port=48921,origin=`http://127.0.0.1:${port}`;
 const external=process.env.WORLD_ATELIER_TEST_EXTERNAL_ORIGIN;
 if(external&&external!==origin)throw Error('External deployment checks require the isolated http://127.0.0.1:48921 origin');
+const bootDelay=Number(process.env.WORLD_ATELIER_TEST_GAME_BOOT_DELAY_MS??0);
+assert.ok(Number.isSafeInteger(bootDelay)&&bootDelay>=0&&bootDelay<=90000,'Game boot delay must be between 0 and 90000 ms');
 const base=join(root,'.local/creation-verification/default-projects-browser');mkdirSync(base,{recursive:true});
-const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],request_failures:[],completed:false};
+const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],request_failures:[],completed:false,game_boot_delay_ms:bootDelay};
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
 let child,browser,log='';
 const failedBuilds=new Map();
@@ -48,6 +50,7 @@ try{
   const newPage=async()=>{
     await context?.close();context=await browser.newContext({viewport:{width:1440,height:1000}});page=await context.newPage();
     page.setDefaultTimeout(120000);
+    if(bootDelay)await page.route(/\/creation-runtime\/[^/]+\/build-[^/]+\/web\/index\.wasm(?:\?|$)/,async route=>{await wait(bootDelay);await route.continue().catch(()=>{});});
     page.on('pageerror',error=>report.page_errors.push(error.message));
     page.on('requestfailed',request=>{const url=new URL(request.url());report.request_failures.push({url:url.origin+url.pathname,error:request.failure()?.errorText});});
     page.on('response',async response=>{
@@ -105,8 +108,11 @@ try{
         await waitForEditor(page,pins);
       }
       await page.locator('[data-mode="play"]').click();
-      const deadline=Date.now()+600000;let playing=false;
+      const deadline=Date.now()+600000;let playing=false;row.mode_transitions=[];
       while(Date.now()<deadline){
+        const ui=await page.evaluate(()=>({mode:document.querySelector('#stage').dataset.previewMode,status:document.querySelector('#workspaceStatus').textContent,render_status:document.querySelector('#mainPreview .render-status')?.textContent}));
+        if(row.mode_transitions.at(-1)?.mode!==ui.mode)row.mode_transitions.push({...ui,at:new Date().toISOString()});
+        if(ui.mode==='edit'&&row.mode_transitions.some(item=>item.mode==='preparing'))throw Error('Game returned to editing before startup: '+JSON.stringify(ui));
         const id=await page.locator('#mainPreview').getAttribute('data-game-build');
         if(failedBuilds.get(id)?.project_id===project.id)throw Error('Canonical Play build failed: '+JSON.stringify(failedBuilds.get(id).error));
         playing=await page.locator('#playControls').evaluate((node,revision)=>node.dataset.mode==='playing'&&node.dataset.displayRevision===revision&&Number(node.dataset.tick)>10,pins.revision);
@@ -146,6 +152,7 @@ try{
       }
       row.passed=true;console.log('DEFAULT_BROWSER_PLAYED '+project.name+' tick '+row.play.tick+' → '+row.later_tick);
     }catch(error){
+      row.failure_ui=await page.evaluate(()=>({mode:document.querySelector('#stage')?.dataset.previewMode,status:document.querySelector('#workspaceStatus')?.textContent,render_status:document.querySelector('#mainPreview .render-status')?.textContent,preview:{...document.querySelector('#mainPreview')?.dataset},play:{...document.querySelector('#playControls')?.dataset}})).catch(()=>null);
       row.passed=false;row.error=error.stack;await page.screenshot({path:join(data,project.id+'-failure.png'),timeout:15000}).catch(()=>{});console.log('DEFAULT_BROWSER_FAILED '+project.name+': '+error.message);
       const serviceAlive=await fetch(origin+'/creation-api/health',{signal:AbortSignal.timeout(5000)}).then(response=>response.ok).catch(()=>false);
       if(!serviceAlive){report.service_unreachable=true;break;}

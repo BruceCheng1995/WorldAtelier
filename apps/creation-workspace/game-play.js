@@ -131,7 +131,7 @@ export class GamePlay {
     this.bindScene(scene); this.commandSeq = this.seq; this.worldContext = {...packet,document_id:scene.document_id};
     const payload = this.startPacket = {...structuredClone(packet), type:'start', seq:this.seq, document_id:scene.document_id, source_revision:scene.source_revision, selected_id:scene.selected_id ?? ''};
     let resolve, reject; const promise = new Promise((a,b)=>{resolve=a;reject=b;});
-    this.pending = {resolve,reject,promise,timer:setTimeout(()=>this.fail('游戏加载超时，请查看出包记录后重试'),90000)};
+    this.pending = {resolve,reject,promise,timer:setTimeout(()=>this.fail('游戏加载超时，请查看出包记录后重试'),180000)};
     if (this.ready) this.post(payload);
     return promise;
   }

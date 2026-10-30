@@ -6,7 +6,7 @@
 
 | 主机 | 需要的环境 |
 | --- | --- |
-| Windows 10/11 | 当前 Docker Desktop，选择 Linux 容器与 WSL2 后端；使用支持 Landlock 的版本（Docker Desktop 4.60+、WSL 2.6+）。也可在 WSL2 Ubuntu 中安装 Docker Engine并执行下面的 Linux 命令。 |
+| Windows 10/11 | 当前 Docker Desktop，选择 Linux 容器与 WSL2 后端；使用支持 Landlock 的版本（Docker Desktop 4.60+、WSL 2.6+）。也可在 WSL2 Ubuntu 中安装 Docker Engine 并执行下面的 Linux 命令。 |
 | Linux | Docker Engine 与 Compose v2，内核启用 Landlock ABI 3+；Ubuntu 24.04 的标准内核具备相应能力。最终以容器内的实际预检为准。 |
 | macOS | 可使用当前 Docker Desktop 的同一容器路径；已有原生部署继续按 [Agent 部署指南](AGENT-DEPLOYMENT.md)执行。 |
 
@@ -79,6 +79,6 @@ ssh -L 48910:127.0.0.1:48910 user@server
 
 ## 可复现验证
 
-仓库工作流 `Cross-platform default projects` 在 Linux 和 Windows WSL2 上构建同一镜像，执行实际隔离检查，并从真实浏览器打开默认工程。测试使用 48921 和独立数据卷，保留源版本、构建身份和截图。查看每个工作流实际结果，不用 Linux 成功替代 Windows 结果。
+仓库工作流 `Cross-platform default projects` 配置了 Linux 和 Windows WSL2 两项验证：构建同一镜像、执行实际隔离检查、从宿主真实浏览器打开全部默认工程，再检查重启后的数据保留。测试使用 48921 和独立数据卷，保留源版本、构建身份和截图。Windows 工作流验证的是 WSL2 Ubuntu 内的 Docker Engine，不涵盖 Docker Desktop 的安装过程。实际通过范围以工作流结果为准，不用 Linux 成功替代 Windows 结果。
 
 本机开发者可以用 `WORLD_ATELIER_PORT=48921` 为独立 Compose 项目设置测试端口；映射内外端口必须一致。浏览器回归设置 `WORLD_ATELIER_TEST_EXTERNAL_ORIGIN=http://127.0.0.1:48921` 后检查已有隔离服务，不启动第二个后端。该入口仅接受测试端口，不对正式 48910 自动创建测试账号。

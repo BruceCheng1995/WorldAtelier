@@ -15,7 +15,7 @@ const manifest={id:'build-fixed',source_revision:'source-v1',canonical_identity:
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 
 function fixture({native=false,role='owner',resourceId='scene-A',entrySceneId='scene-A',prepareRuntime=false}={}){
- const events=[],previews=[],runtimeQueue=[],elements=new Map(),scenes=new Map();let generation=0;
+ const events=[],previews=[],runtimeQueue=[],startQueue=[],elements=new Map(),scenes=new Map();let generation=0;
  const element=id=>{if(!elements.has(id))elements.set(id,{textContent:'',hidden:false,open:false,dataset:{}});return elements.get(id);};
  class FakePreview{
   constructor(host,mode,onEvent=()=>{}){this.id=previews.length;this.host=host;this.mode=mode;this.onEvent=onEvent;this.disposed=false;this.loadedSeq=0;this.frame={hidden:false,addEventListener(){}};this.status={hidden:false};this.runtimeReady=runtimeQueue.shift()??Promise.resolve(manifest);this.runtimeBuildId='fixture-fixed-build';previews.push(this);events.push(['create',this.id,mode]);}
@@ -26,12 +26,12 @@ function fixture({native=false,role='owner',resourceId='scene-A',entrySceneId='s
  class FakeNativePreview extends FakePreview {}
  class FakeGamePlay extends FakePreview {
   constructor(host,prepare,onEvent){super(host,'game',onEvent);if(prepareRuntime)this.runtimeReady=Promise.resolve().then(()=>prepare({signal:new AbortController().signal,onProgress(){}})).then(result=>result.job);}
-  async start(scene,packet){events.push(['runtime',this.id,'start',{...packet,scene}]);}
+  async start(scene,packet){events.push(['runtime',this.id,'start',{...packet,scene}]);return startQueue.shift();}
  }
  const localDocuments=new Map();
  const sandbox={GodotPreview:FakePreview,NativeGodotPreview:FakeNativePreview,GamePlay:FakeGamePlay,isNative:()=>native,applyViewportDisplay(){},$:element,document:{querySelector:()=>null},onPreviewEvent:message=>events.push(['event',message.type]),closeChat(){},
   // Mode lifecycle cases begin without an active prefab placement controller.
-  prefabPlacement:null,closePrefabLab(){},
+  prefabPlacement:null,viewportAnnotations:null,playContext:null,closePrefabLab(){},
   mainPreview:null,editorPreview:null,objectPreview:null,mainDocument:null,objectDocument:null,loadedSourceScene:null,sceneGeneration:0,mode:'edit',modePending:false,branch:{head:'source-v1',branch_id:'main',manifest:{entry_scene_id:entrySceneId}},doc:()=>({kind:'scene'}),project:{id:'project-A',role},resourceId,key:()=> 'project-A/main/'+resourceId,
   user:{id:'user-A',name:'Verifier A'},userColor:()=> '#abcd12',uuid:()=> 'local-'+(++generation),sourceScene:async(revision,targetResource=resourceId)=>{events.push(['source-scene',revision,targetResource]);return {scene_revision:revision,resource_id:targetResource,document_id:'project-A/main/'+targetResource,objects:[]};},
   branchRoute:(projectId,branchId)=>`projects/${projectId}/branches/${branchId}`,prepareGamePlay:async options=>{events.push(['prepare-game',options]);return {job:{...manifest,source_revision:options.revision,entry_scene_id:options.entrySceneId}};},
@@ -39,11 +39,11 @@ function fixture({native=false,role='owner',resourceId='scene-A',entrySceneId='s
   localSceneDocuments:localDocuments,localDocumentRequest:null,localSceneDocument:(revision,documentId)=>localDocuments.get(`${documentId}/${revision}`),trackLocalScene(){},
   worldScenes:{clear:()=>{scenes.clear();events.push(['clear-scenes']);},put:scene=>scenes.set(scene.scene_revision,scene),get:revision=>scenes.get(revision)},modeSequence:{clear:()=>events.push(['clear-mode-sequence']),begin:()=>({request_id:'request-'+(++generation)})},playControls:{setEnabled:value=>events.push(['controls',value])},
   api:{ready:true,send:packet=>events.push(['server',packet.type,packet]),api:()=>Promise.reject(Error('unexpected API fixture call'))},
-  invalidateMainCamera:()=>events.push(['invalidate-camera']),cancelLocalEdit(){},sendPresence(){},sendDevelopment(){},renderAll(){},renderStage(){},renderInspector(){},clearTimeout(){},armModeTimeout(){},toast(){},
+  invalidateMainCamera:()=>events.push(['invalidate-camera']),cancelLocalEdit(){},sendPresence(){},sendDevelopment(){},renderAll(){},renderStage(){},renderInspector(){},clearTimeout(){},armModeTimeout(){events.push(['mode-timeout-armed']);},toast(){},
   requestWorldMode:target=>events.push(['mode-request',target]),loadWorldScene:()=>Promise.resolve(true),suspendWorld:reason=>events.push(['suspend',reason]),errorText:error=>error.message,
  };
  const context=vm.createContext(sandbox);vm.runInContext(implementation,context);context.ensurePreviews();
- return {context,events,previews,runtimeQueue};
+ return {context,events,previews,runtimeQueue,startQueue};
 }
 
 function faultEventFixture(){
@@ -110,6 +110,18 @@ test('FAKE workspace: rapid repeated Run cannot duplicate local start or engine 
  const f=fixture(),pending=deferred();f.runtimeQueue.push(pending.promise);const first=f.context.setMode('play');await f.context.setMode('play');
  assert.equal(f.previews.length,3);pending.resolve(manifest);await first;
  assert.equal(f.events.filter(row=>row[0]==='runtime'&&row[2]==='start').length,1);
+});
+
+for(const outcome of ['loaded','already-acknowledged','stopped'])test('FAKE workspace: cold game startup does not consume the mode acknowledgement deadline - '+outcome,async()=>{
+ const f=fixture(),pending=deferred();f.startQueue.push(pending.promise);
+ const running=f.context.setMode('play');
+ await new Promise(setImmediate);
+ assert.ok(f.events.some(row=>row[0]==='runtime'&&row[2]==='start'));
+ assert.equal(f.events.filter(row=>row[0]==='mode-timeout-armed').length,0,'the game transport owns its pending download/initialization deadline');
+ if(outcome==='already-acknowledged')f.context.modePending=false;
+ if(outcome==='stopped')await f.context.setMode('edit');
+ pending.resolve();await running;
+ assert.equal(f.events.filter(row=>row[0]==='mode-timeout-armed').length,outcome==='loaded'?1:0);
 });
 
 test('FAKE workspace: personal inspection and resume preserve the play iframe',async()=>{

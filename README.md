@@ -73,7 +73,7 @@
 
 可以把这个仓库交给自己的 Agent，并直接告诉它：
 
-> 请按 README 和 docs/AGENT-DEPLOYMENT.md 在当前 clone 中部署世界工坊。先检查主机、安装准确的 Godot 和 Web 模板、执行 doctor，再构建并启动原工作台。打开已有的俄罗斯方块和兽人必须死，验证真实 Play 后把地址给我。只体验案例，不需要配置 AI 创作，也不要从零制作 demo。
+> 请按 README 在当前 clone 中部署世界工坊。先检查主机：Windows/Linux 按 docs/CONTAINER-DEPLOYMENT.md 准备 Docker 并启动容器；macOS 原生部署按 docs/AGENT-DEPLOYMENT.md 安装固定工具链。执行对应环境的 doctor，再打开已有的俄罗斯方块和兽人必须死，验证真实 Play 后把地址给我。只体验案例，不需要配置 AI 创作，也不要从零制作 demo。
 
 **Agent 请先选择主机对应的路径**：[Windows / Linux 容器部署](docs/CONTAINER-DEPLOYMENT.md)或 [macOS 原生部署](docs/AGENT-DEPLOYMENT.md)。指南包含安装、环境预检、打开案例和实际 Play 的完成判断。其他机器以自己的 clone 为根目录，不使用作者文档中的本机绝对路径。
 
@@ -133,7 +133,7 @@ WORLD_ATELIER_DISABLE_AGENT=1 npm start
 
 项目持续开发中，当前面向本机和局域网使用，已接入真实 Agent、Godot Web、原生源稿编辑与协作流程。[独立验证记录](docs/CREATION-NEXT-WAVE-VALIDATION-2026-10-23.md)涵盖试玩反馈到 Agent 修复、重开后的行为检查、跨分支续聊、合并与离线往返，按服务、引擎、浏览器和 Agent 分别记录结果。
 
-接下来优先缩短编辑到 Play 的等待，完善长期创作体验。公网托管与跨平台发行仍待探索，现有验证不代表大规模部署已经完成。
+接下来优先缩短编辑到 Play 的等待，完善长期创作体验。Windows/Linux 已提供上述案例容器入口；公网托管、完整 Agent 执行器的跨平台部署及大规模部署仍待完善。
 
 ## 文档与开发
 

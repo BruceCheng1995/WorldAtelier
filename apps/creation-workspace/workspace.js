@@ -2576,9 +2576,11 @@ async function setMode(next){
       localSceneDocuments.set(`${scene.document_id}/${scene.scene_revision}`,scene);
       inputEnabled=true;
       const phase=modeSequence.begin('play',null);
-      armModeTimeout();
       await preview.start({...scene,selected_id:selectedId??''},{...world,request_id:phase.request_id});
       if(joinRequest!==request||preview!==mainPreview)return;
+      // Downloading/compiling the cold Web export has its own bounded startup
+      // timer. The shorter mode ACK deadline only applies after actual load.
+      if(modePending)armModeTimeout();
       joinRequest=null;
     } catch(error) {if(request.generation===joinGeneration&&preview===mainPreview)suspendWorld(`无法进入试玩：${errorText(error)}`);return;}
     renderStage();return;
