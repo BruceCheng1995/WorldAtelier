@@ -48,7 +48,7 @@ const server = http.createServer(async(req,res)=>{
     if (await creation.request(req,res)) return;
     if (creation.builds.webRequest(req,res)) return;
     if (creation.assetRequest(req,res)) return;
-    if (req.method==='GET' && path==='/preview-api/health') return json(res,200,{ok:true,runtime_ready:existsSync(resolve(build,'index.wasm')),service:'model-preview',lan_enabled:network.lan,listen_host:network.host,public_play:network.publicPlay,registration_open:true});
+    if (req.method==='GET' && path==='/preview-api/health') return json(res,200,{ok:true,runtime_ready:existsSync(resolve(build,'index.wasm')),service:'model-preview',lan_enabled:network.lan,listen_host:network.host,public_play:network.publicPlay,default_projects:Boolean(creation.defaultProjects),registration_open:true});
     if (req.method==='GET' && path==='/preview-api/catalog') return json(res,200,catalog());
     if (req.method==='POST' && path==='/preview-api/assets') {
       if (req.headers.origin !== origin) return json(res,403,{error:'模型导入需要来自当前工作台'});
@@ -124,7 +124,9 @@ const server = http.createServer(async(req,res)=>{
     return json(res,404,{error:'Not found'});
   } catch(error) { if (!res.headersSent) json(res,error.status??400,{error:error.message});else res.destroy(); }
 });
-const creation = new CreationService({server,root,data:resolve(process.env.WORLD_ATELIER_CREATION_DATA??`${data}/creation`),origin:`http://127.0.0.1:${port}`,runtimeBuild:build,publicPlay:network.publicPlay,requestOrigin:network.requestOrigin,workspaceUrls:network.urls,network});
+const defaultProjects=process.env.WORLD_ATELIER_DEFAULT_PROJECTS===undefined?port===48910:process.env.WORLD_ATELIER_DEFAULT_PROJECTS==='1';
+const creation = new CreationService({server,root,data:resolve(process.env.WORLD_ATELIER_CREATION_DATA??`${data}/creation`),origin:`http://127.0.0.1:${port}`,runtimeBuild:build,publicPlay:network.publicPlay,requestOrigin:network.requestOrigin,workspaceUrls:network.urls,network,defaultProjects});
+if(creation.defaultProjects)console.log(`默认工程：新安装 ${creation.defaultProjects.installed.length}，已收录原工程 ${creation.defaultProjects.adopted.length}，已安装 ${creation.defaultProjects.existing.length}，保留冲突工程 ${creation.defaultProjects.conflicts.length}`);
 server.listen(port,network.host,()=>console.log(`世界工坊已启动（${network.publicPlay?'注册即可试玩现有游戏':'项目按邀请访问'}）：\n${network.urls().join('\n')}`));
 let shuttingDown=false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal,async()=>{

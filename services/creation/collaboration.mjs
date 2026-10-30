@@ -18,7 +18,7 @@ export class CreationCollaboration {
     const all=this.store.list(REQUEST).filter(r=>r.project_id===p).sort((a,b)=>b.created_at-a.created_at||b.id.localeCompare(a.id));
     const mine=all.find(r=>r.requester_user_id===user.id&&r.status==='pending')??all.find(r=>r.requester_user_id===user.id)??null;
     return {project:this.store.projectView(user,project),members:this.store.projectView(user,project).members,
-      capabilities:{can_edit:canEdit,can_manage:manage,can_invite:manage,can_change_access:manage,can_request_edit:!canEdit&&mine?.status!=='pending',can_create_project:this.store.canCreateProject(user)},
+      capabilities:{can_edit:canEdit,can_manage:manage,can_invite:manage,can_change_access:manage,can_request_edit:!canEdit&&Object.values(project.members).includes('owner')&&mine?.status!=='pending',can_create_project:this.store.canCreateProject(user)},
       my_request:mine?this.requestView(mine):null,requests:all.filter(r=>manage||r.requester_user_id===user.id).slice(0,100).map(r=>this.requestView(r)),
       pending_count:manage?all.filter(r=>r.status==='pending').length:0,
       invites:manage?this.store.list('creator_invite').filter(r=>r.project_id===p).sort((a,b)=>(b.created_at??0)-(a.created_at??0)).slice(0,100).map(r=>this.inviteView(r)):[],
@@ -109,6 +109,7 @@ export class CreationCollaboration {
   }
   request(user,p,input){
     fields(input,['request_id','reason']);const project=this.store.projectFor(user,p),reason=text(input.reason,'申请说明');
+    if(!Object.values(project.members).includes('owner'))fail(403,'此默认工程供查看和试玩，不接受编辑申请');
     return this.mutate(user,p,'request',input,()=>{
       if(['owner','editor'].includes(this.store.roleFor(user,project)))fail(409,'你已拥有编辑权限');
       const pending=this.store.list(REQUEST).find(r=>r.project_id===p&&r.requester_user_id===user.id&&r.status==='pending');

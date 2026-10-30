@@ -141,6 +141,9 @@ test('published fixed source remains readable after a branch reset and is revoke
 
 test('GET and explicit POST game-releases dispatch through real auth and isolated SQLite without a listening port',async t=>{
  const {CreationService}=await import('../../services/creation/service.mjs'),{Readable}=await import('node:stream');const f=fixture(t),job=f.makeJob(),service=Object.create(CreationService.prototype);Object.assign(service,{store:f.store,gameReleases:f.releases,origin:'http://isolated.test'});
+ // These unrelated dispatchers were added after this narrow router fixture.
+ // Keep real auth/publication behavior while explicitly declining their routes.
+ Object.assign(service,{runtimeAccess:{network:{runtimeRequestOrigin:()=>null}},nativeClients:{request:()=>false},observations:{request:()=>false},continuations:{request:()=>false}});
  const tokens=new Map([f.owner,f.player].map(user=>[user.id,f.store.issueLogin(f.store.get('creator_user',user.id)).token]));
  const request=async(method,user,input)=>{const req=Readable.from(input?[Buffer.from(JSON.stringify(input))]:[]);Object.assign(req,{method,url:'/creation-api/projects/'+f.p+'/branches/main/game-releases',headers:{authorization:'Bearer '+tokens.get(user.id),host:'isolated.test',origin:'http://isolated.test'}});const res={writeHead(status,headers){this.status=status;this.headers=headers;},end(text){this.body=JSON.parse(text);}};assert.equal(await service.request(req,res),true);return res;};
  assert.equal((await request('GET',f.player)).body.releases.length,0);const input=f.request(job);assert.equal((await request('POST',f.player,input)).status,403);const published=await request('POST',f.owner,input);assert.equal(published.status,201);assert.equal((await request('POST',f.owner,input)).status,200);const current=await request('GET',f.player);assert.equal(current.status,200);assert.equal(current.body.releases[0].build_id,job.id);

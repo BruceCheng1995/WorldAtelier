@@ -13,6 +13,8 @@
     "background:uninstall": "node tools/workspace-background.mjs uninstall",
     "build:runtime": "node tools/build-runtime.mjs",
     "test": "npm run test:creation:unit",
+    "test:defaults": "node --test tests/creation/default-projects-independent.test.mjs tests/creation/play-entry-validation.test.mjs",
+    "test:defaults:browser": "node tests/creation/default-projects-browser.mjs",
     "test:legacy": "node --test tests/e2e/central.test.mjs",
     "test:creation:unit": "node --test tests/creation/canonical-game-project.test.mjs tests/creation/unified-game-bridge.test.mjs tests/creation/native-shared-bridge.test.mjs tests/creation/native-fine-merge.test.mjs tests/creation/native-merge-agent.test.mjs tests/creation/play-context-buffer.test.mjs tests/creation/play-observations.test.mjs tests/creation/session-continuations.test.mjs tests/creation/agent-text-boundary.test.mjs tests/creation/agent-skills.test.mjs",
     "test:creation:engine": "node --test --test-concurrency=1 tests/creation/play-context-engine.test.mjs tests/creation/native-offline-roundtrip.test.mjs",

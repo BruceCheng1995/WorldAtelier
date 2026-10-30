@@ -74,7 +74,7 @@
 
 - **Node.js 24+**。
 - **Godot 4.6 stable**，以及匹配的 Web 导出模板。
-- **已登录的 Codex CLI**，Agent 创作通过兼容的 App Server 执行，见 [Codex 集成](docs/CODEX-INTEGRATION.md)。
+- **已登录的 Codex CLI（仅 Agent 创作需要）**，通过兼容的 App Server 执行，见 [Codex 集成](docs/CODEX-INTEGRATION.md)。
 
 ```bash
 git clone https://github.com/BruceCheng1995/WorldAtelier.git
@@ -86,15 +86,18 @@ npm start
 
 打开 **[世界工坊工作台](http://127.0.0.1:48910/creation-workspace.html)**。
 
-`build:preview` 准备编辑视口，具体游戏在 Play 时构建。界面、创作 API、Agent 会话与 Godot Web 共用 `48910` 服务；再次启动会复用已经运行的本项目服务。
+首次启动会自动安装 **9 个默认工程、11 个分支**：兽人必须死、植物大战僵尸、坦克大战、俄罗斯方块、贪吃蛇、TPS、小巷漫步、小小梦魇、塔防游戏。注册账号后就能从游戏库打开场景、预制件并点击 **Play**，无需先运行 Agent 或从零制作 demo。
+
+`build:preview` 准备编辑视口，具体游戏首次打开或 Play 时会构建，等待界面的真实构建进度即可；后续复用匹配的构建。只查看和试玩不需要 Codex 登录，可用 `WORLD_ATELIER_DISABLE_AGENT=1 npm start`。界面、创作 API、Agent 会话与 Godot Web 共用 `48910` 服务；再次启动会复用已经运行的本项目服务。
 
 <details>
 <summary>工具路径与首次使用</summary>
 
 - 默认 Godot 路径为 `/Applications/Godot.app/Contents/MacOS/Godot`，Codex 为 `/opt/homebrew/bin/codex`。路径不同时，在构建或启动前设置 `GODOT_BIN`、`CODEX_BIN`。
 - 本地 HTTP 适配固定校验 `4.6.stable.official.89cea1439` 与官方导出模板。用 `codex login status` 检查服务账户的登录；升级 CLI 后需核对 App Server 兼容性。
-- 空数据库的首个账号可创建第一个游戏。其他新账号默认可浏览、试玩，获得编辑授权后可创作并启动 Agent。
-- 默认开放局域网连接与注册；仅本机使用时设置 `WORLD_ATELIER_LAN=0`。数据保存在 `.local/model-preview/`，截图中的游戏不随仓库分发。
+- 首个注册账号仍可创建自己的游戏；默认工程不占用初始创作资格。其他新账号可以只读查看和试玩默认工程，普通游戏继续按原有协作与发布权限访问。
+- 默认开放局域网连接与注册；仅本机使用时设置 `WORLD_ATELIER_LAN=0`。数据保存在 `.local/model-preview/`。默认工程随仓库分发完整原生源文件和封面（压缩后约 216 MiB），不包含原工作区的账号、聊天或存档。
+- 重启不会重复安装或覆盖已有源稿、权限与归档状态。全新部署如需空游戏库，可在首次启动前设置 `WORLD_ATELIER_DEFAULT_PROJECTS=0`；此开关不会删除已经安装的工程。
 
 完整配置与后台运行见[本机开发指南](docs/LOCAL-DEVELOPMENT.md)。
 
@@ -109,6 +112,7 @@ npm start
 ## 文档与开发
 
 - [创作工作台](docs/CREATION-WORKSPACE.md)：场景、预制件、协作与会话交互。
+- [默认工程分发](docs/DEFAULT-PROJECTS.md)：收录范围、部署行为及更新方法。
 - [试玩上下文](docs/CREATION-NEXT-WAVE-2026-10-23.md) · [视口批注](docs/VIEWPORT-ANNOTATIONS.md)：把操作、画面和空间意图交给 Agent。
 - [Agent 执行环境](docs/AGENT-ENVIRONMENTS.md) · [资产工作流](docs/AGENT-ASSET-WORKFLOW.md)：固定工程、开发工具与素材处理。
 - [工程导航](PROJECT.md) · [开发约定](AGENTS.md)：架构、实现与验证入口。

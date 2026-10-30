@@ -493,11 +493,15 @@ export class CreationBuilds {
     const importedExport=await this.measure(job,'import_snapshot',()=>this.prepareImportedExport(job,source,sourceFiles));
     this.update(job,{progress:35,stage:job.purpose==='native_preview'?'验证原生编辑视口':job.purpose==='native_shared'?'验证共享世界显示端':'验证独立运行入口'});
     const manifest=this.store.get('creator_revision',job.source_revision).manifest;
-    const resources=job.purpose==='prefab_test'?[job.entry_scene_id]:Object.values(manifest.resources).filter(resource=>job.kind==='source'||job.purpose==='native_preview'||!isPrefabTest(resource)).map(resource=>resource.id);
+    // Play boots the selected canonical entry. A prefab can rely on its parent
+    // scene's services/InputMap and is not an independent executable. Keep the
+    // full project import and dependency closure above; explicit prefab tests
+    // still boot their selected authored test scene.
+    const resources=['play','prefab_test'].includes(job.purpose)?[job.entry_scene_id]:Object.values(manifest.resources).filter(resource=>job.kind==='source'||job.purpose==='native_preview'||!isPrefabTest(resource)).map(resource=>resource.id);
     for(const [index,resourceId] of (job.purpose==='native_preview'?[job.entry_scene_id]:resources).entries()){
       this.update(job,{progress:35+Math.floor(index/resources.length*10),stage:`验证资源 ${index+1} / ${resources.length}`});
-      // Keep every resource and all 180 iterations. Fixed simulation steps
-      // remove real-time waiting; each process still has a fresh save domain.
+      // Fixed simulation steps remove real-time waiting; each checked entry
+      // still runs all 180 iterations in a fresh save domain.
       await this.measure(job,'resource_check',()=>this.command(job,this.godot,['--headless','--path',source,'--fixed-fps','60','--quit-after','180','--','--release-scene='+resourceId],base,{isolatedProject:source,requiredMarker:job.purpose==='native_preview'?'PREVIEW_LOADED':job.purpose==='native_shared'?'NATIVE_SHARED_CLIENT_READY':'STANDALONE_READY'}),{resource_id:resourceId});
     }
     this.update(job,{progress:45,stage:job.kind==='source'?'正在压缩 Godot 工程':'准备平台导出'});

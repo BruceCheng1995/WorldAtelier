@@ -6,6 +6,7 @@ import { applyHierarchyTransaction, hierarchyMergeEntries, mergeHierarchy, attac
 import {sourceAnnotationContext} from './annotation-context.mjs';
 import {attachNativeSource} from './native-attachments.mjs';
 import {NATIVE_SCHEMA,nativeSourceIdentity} from './native-source.mjs';
+import {DEFAULT_PROJECT_FORMAT} from './default-projects.mjs';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { Storage } from '../control-plane/storage.mjs';
 import {RevisionReads} from './revision-reads.mjs';
@@ -29,7 +30,7 @@ export class CreationStore extends Storage {
   roleFor(user,project) {
     const current=user?.id&&this.get('creator_user',user.id);
     if(!current||current.disabled_at||project?.archived_at)return null;
-    return project?.members[user.id]||(this.publicPlay&&project&&project.public_play!==false?'player':null);
+    return project?.members[user.id]||(this.publicPlay&&project&&project.public_play!==false?(project.default_project?.format===DEFAULT_PROJECT_FORMAT?'viewer':'player'):null);
   }
   publicUser(user) {return {id:user.id,name:user.name,color:user.color};}
   accountName(value,exceptId=null) {
@@ -100,7 +101,7 @@ export class CreationStore extends Storage {
     if(typeof current.creation_allowed==='boolean')return current.creation_allowed;
     if(!this.publicPlay)return true;
     const projects=this.list('creator_project');
-    return projects.some(p=>p.members[user.id]==='owner'||!p.archived_at&&p.members[user.id]==='editor')||(!projects.length&&this.list('creator_user').sort((a,b)=>a.created_at-b.created_at)[0]?.id===user.id);
+    return projects.some(p=>p.members[user.id]==='owner'||!p.archived_at&&p.members[user.id]==='editor')||(!projects.some(p=>p.default_project?.format!==DEFAULT_PROJECT_FORMAT)&&this.list('creator_user').sort((a,b)=>a.created_at-b.created_at)[0]?.id===user.id);
   }
   createProject(user,input,manifest) {
     if(!this.canCreateProject(user))fail(403,'当前账号可试玩游戏，可在现有游戏中申请编辑，由拥有者批准后创作');

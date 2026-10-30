@@ -19,6 +19,8 @@ async function existing(quiet=false){
     const body=await health.json();
     if(!health.ok||!body.ok||body.service!=='model-preview')throw new Error('服务身份不匹配');
     if(Boolean(body.lan_enabled)!==network.lan||Boolean(body.public_play)!==network.publicPlay)throw new Error('当前服务的局域网或公共试玩设置与启动配置不同，请按开发文档受控重启');
+    const defaultProjects=process.env.WORLD_ATELIER_DEFAULT_PROJECTS===undefined?port===48910:process.env.WORLD_ATELIER_DEFAULT_PROJECTS==='1';
+    if(Boolean(body.default_projects)!==defaultProjects)throw new Error('当前服务的默认工程配置尚未加载或与启动配置不同，请按开发文档受控重启');
     const response=await fetch(url,{signal:AbortSignal.timeout(2500)});
     if(!response.ok||await response.text()!==await readFile(resolve(root,'apps/creation-workspace/index.html'),'utf8'))throw new Error('工作台不是当前工程文件');
   }catch(error){throw new Error(`端口 ${port} 已被占用，但未确认是当前工作台：${error.message}。请检查监听进程；不会换端口或再启动一份。`);}

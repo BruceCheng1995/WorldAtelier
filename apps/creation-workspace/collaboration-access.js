@@ -283,6 +283,7 @@ export class CollaborationAccess {
     const readOnly = data ? !data.capabilities.can_edit : project && !['owner','editor'].includes(project.role);
     const request = data?.my_request;
     let message = readOnly ? '只读，可查看和试玩 · 点击申请编辑' : '可编辑 · 查看协作与权限';
+    if (readOnly && project?.default_project && !project.members?.length) message = '默认工程 · 可查看和试玩';
     if (readOnly && request?.status === 'pending') message = '编辑申请等待拥有者审批 · 点击查看申请';
     else if (readOnly && request?.status === 'rejected') message = '编辑申请未通过 · 点击查看结果或再次申请';
     if (pending) message = `${pending} 个编辑申请待处理 · 点击审批`;
@@ -445,8 +446,8 @@ export class CollaborationAccess {
       const row = this.element('section',null,this.body,'wa-access-my-status'), request = this.data.my_request;
       const copy = this.element('div',null,row);
       this.element('strong',request?.status === 'pending' ? '编辑申请已发送' : request?.status === 'rejected' ? '编辑申请未通过' : '你可以查看和试玩',copy);
-      this.element('small',request?.status === 'pending' ? '等待游戏拥有者处理' : request?.status === 'rejected' ? '查看处理说明或再次申请' : '修改内容需要编辑权限',copy);
-      this.button(request?.status === 'pending' ? '查看申请' : '申请编辑',row,() => { this.tab = 'request-details'; this.render(); },{key:'member-request',disabled:!request&&!capabilities.can_request_edit});
+      this.element('small',request?.status === 'pending' ? '等待游戏拥有者处理' : request?.status === 'rejected' ? '查看处理说明或再次申请' : this.data.project.default_project&&!this.data.members.length ? '随部署提供的默认工程，所有注册用户均可体验' : '修改内容需要编辑权限',copy);
+      if(request||capabilities.can_request_edit)this.button(request?.status === 'pending' ? '查看申请' : '申请编辑',row,() => { this.tab = 'request-details'; this.render(); },{key:'member-request',disabled:!request&&!capabilities.can_request_edit});
     }
     this.element('h3','谁可以访问',this.body,'wa-access-section-title');
     const general = this.element('div',null,this.body,'wa-access-general-row');

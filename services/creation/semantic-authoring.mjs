@@ -14,7 +14,7 @@ export class SemanticAuthoring {
   constructor({store,commit}={}){this.store=store;this.commit=commit??((user,p,b,input,origin)=>store.apply(user,p,b,input,origin));}
   fixed(user,p,b,revision,{write=false}={}){
     const project=this.store.projectFor(user,p,write);
-    if(!['owner','editor','viewer'].includes(project.members[user.id]))fail(403,'共享设计资料仅供项目协作者访问');
+    if(!['owner','editor','viewer'].includes(this.store.roleFor(user,project)))fail(403,'共享设计资料仅供项目协作者访问');
     const branch=this.store.branchFor(user,p,b,write),fixed=this.store.get('creator_revision',revision??branch.head);
     if(!fixed||fixed.project_id!==p||!this.store.ancestor(fixed.id,branch.head))fail(409,'需要当前分支可达的固定源版本');
     return {project_id:p,branch_id:b,revision:fixed.id,manifest:fixed.manifest,branch};
