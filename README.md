@@ -79,7 +79,7 @@
 
 ## Windows / Linux 快速运行
 
-Windows 使用 Docker Desktop 的 Linux 容器/WSL2，Linux 使用 Docker Engine 与 Compose v2。主机准备 Git 和 Docker 即可，镜像会安装固定 Node、Godot 和 Web 模板。
+Windows 使用 Docker Desktop 的 Linux 容器/WSL2，Linux 使用 Docker Engine 与 Compose v2。主机准备 Git 和 Docker 即可，镜像会准备 Node 24、固定版本的 Godot 和 Web 模板。
 
 ```text
 git clone https://github.com/BruceCheng1995/WorldAtelier.git

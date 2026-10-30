@@ -14,7 +14,7 @@ if(external&&external!==origin)throw Error('External deployment checks require t
 const bootDelay=Number(process.env.WORLD_ATELIER_TEST_GAME_BOOT_DELAY_MS??0);
 assert.ok(Number.isSafeInteger(bootDelay)&&bootDelay>=0&&bootDelay<=90000,'Game boot delay must be between 0 and 90000 ms');
 const base=join(root,'.local/creation-verification/default-projects-browser');mkdirSync(base,{recursive:true});
-const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],request_failures:[],completed:false,game_boot_delay_ms:bootDelay};
+const data=mkdtempSync(join(base,'run-')),report={data,origin,games:[],page_errors:[],http_errors:[],request_failures:[],completed:false,game_boot_delay_ms:bootDelay,browser_isolation:'process_per_case'};
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
 let child,browser,log='';
 const failedBuilds=new Map();
@@ -45,11 +45,24 @@ try{
     await wait(250);
   }
   assert.ok(healthy,'Fresh deployment did not become ready: '+log);
-  browser=await chromium.launch({channel:'chrome',headless:true,args:['--mute-audio']});
   let context,page;
-  const newPage=async()=>{
-    await context?.close();context=await browser.newContext({viewport:{width:1440,height:1000}});page=await context.newPage();
+  const newPage=async evidence=>{
+    await browser?.close();browser=await chromium.launch({channel:'chrome',headless:true,args:['--mute-audio']});
+    context=await browser.newContext({viewport:{width:1440,height:1000}});page=await context.newPage();
     page.setDefaultTimeout(120000);
+    await page.addInitScript(()=>{
+      window.__defaultRuntimeEvidence=[];
+      window.addEventListener('message',event=>{
+        const packet=event.data;
+        if(packet?.source!=='world-atelier-game'||!['ready','loaded','runtime_error','error'].includes(packet.type))return;
+        if(window.__defaultRuntimeEvidence.length<40)window.__defaultRuntimeEvidence.push({at:new Date().toISOString(),type:packet.type,source_revision:packet.source_revision,canonical_identity:packet.canonical_identity,document_id:packet.document_id,message:packet.message});
+      });
+    });
+    if(evidence){
+      evidence.console=[];evidence.runtime_assets=[];
+      page.on('console',message=>{const text=message.text();if(evidence.console.length<80&&(['error','warning'].includes(message.type())||/Godot Engine|WebGL|WebAssembly/.test(text)))evidence.console.push({at:new Date().toISOString(),type:message.type(),text:text.slice(0,1600)});});
+      page.on('requestfinished',request=>{const url=new URL(request.url());if(url.pathname.startsWith('/creation-runtime/')&&/\.(wasm|pck)$/.test(url.pathname)&&evidence.runtime_assets.length<20)evidence.runtime_assets.push({asset:url.pathname.split('/').at(-1),timing:request.timing()});});
+    }
     if(bootDelay)await page.route(/\/creation-runtime\/[^/]+\/build-[^/]+\/web\/index\.wasm(?:\?|$)/,async route=>{await wait(bootDelay);await route.continue().catch(()=>{});});
     page.on('pageerror',error=>report.page_errors.push(error.message));
     page.on('requestfailed',request=>{const url=new URL(request.url());report.request_failures.push({url:url.origin+url.pathname,error:request.failure()?.errorText});});
@@ -75,9 +88,9 @@ try{
   for(const project of ordered){
     const row={name:project.name,id:project.id,started_at:new Date().toISOString()};report.games.push(row);console.log('DEFAULT_BROWSER_OPEN '+project.name);
     try{
-      // A separate visitor window per case bounds WebAssembly/GPU memory and
-      // verifies cold browser state, rather than accumulating nine game heaps.
-      await newPage();await page.goto(origin+'/creation-workspace.html');
+      // Each cold visit owns a browser process, including its GPU process;
+      // closing contexts alone can retain driver resources across cases.
+      await newPage(row);await page.goto(origin+'/creation-workspace.html');
       await page.locator('#authMode').selectOption('login');await page.locator('#authName').fill('默认工程部署检查');await page.locator('#authPassword').fill('default-project-isolated-password');await page.locator('#authSubmit').click();
       await expect(page.locator('#gameLibrary')).toBeVisible();await expect(page.locator('#gameCards .game-card')).toHaveCount(9);
       const fixed=await page.evaluate(async projectId=>{
@@ -150,8 +163,10 @@ try{
         await expect(page.locator('#mainPreview')).toHaveAttribute('data-game-build',row.build);
         row.resume=true;
       }
+      row.runtime_events=await page.evaluate(()=>window.__defaultRuntimeEvidence);
       row.passed=true;console.log('DEFAULT_BROWSER_PLAYED '+project.name+' tick '+row.play.tick+' → '+row.later_tick);
     }catch(error){
+      row.runtime_events=await page.evaluate(()=>window.__defaultRuntimeEvidence).catch(()=>null);
       row.failure_ui=await page.evaluate(()=>({mode:document.querySelector('#stage')?.dataset.previewMode,status:document.querySelector('#workspaceStatus')?.textContent,render_status:document.querySelector('#mainPreview .render-status')?.textContent,preview:{...document.querySelector('#mainPreview')?.dataset},play:{...document.querySelector('#playControls')?.dataset}})).catch(()=>null);
       row.passed=false;row.error=error.stack;await page.screenshot({path:join(data,project.id+'-failure.png'),timeout:15000}).catch(()=>{});console.log('DEFAULT_BROWSER_FAILED '+project.name+': '+error.message);
       const serviceAlive=await fetch(origin+'/creation-api/health',{signal:AbortSignal.timeout(5000)}).then(response=>response.ok).catch(()=>false);

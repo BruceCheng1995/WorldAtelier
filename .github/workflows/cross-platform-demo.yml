@@ -65,6 +65,16 @@ jobs:
   windows-wsl:
     runs-on: windows-2025
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: classic
+            games: 俄罗斯方块,兽人必须死,植物大战僵尸
+          - suite: action
+            games: 贪吃蛇,坦克大战,TPS
+          - suite: large-scenes
+            games: 小小梦魇,塔防游戏,小巷漫步
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -90,6 +100,7 @@ jobs:
             wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh install
             wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash deploy/ci-wsl.sh build
             $env:WORLD_ATELIER_TEST_EXTERNAL_ORIGIN = 'http://127.0.0.1:48921'
+            $env:WORLD_ATELIER_DEFAULT_TEST_GAMES = '${{ matrix.games }}'
             npm run test:defaults:browser
             node tests/creation/container-persistence.mjs snapshot
             wsl.exe --distribution Ubuntu-24.04 --user root --cd "$env:GITHUB_WORKSPACE" -- bash -c 'WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci restart && WORLD_ATELIER_PORT=48921 docker compose -p worldatelier-ci up -d --no-build --wait --wait-timeout 180'
@@ -111,7 +122,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: windows-wsl-deployment-evidence
+          name: windows-wsl-${{ matrix.suite }}-deployment-evidence
           path: |
             .local/creation-verification/default-projects-browser/**/report.json
             .local/creation-verification/default-projects-browser/**/*.png
