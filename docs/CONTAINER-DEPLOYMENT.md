@@ -82,3 +82,17 @@ ssh -L 48910:127.0.0.1:48910 user@server
 仓库工作流 `Cross-platform default projects` 配置了 Linux 和 Windows WSL2 两项验证：构建同一镜像、执行实际隔离检查、从宿主真实浏览器打开全部默认工程，再检查重启后的数据保留。测试使用 48921 和独立数据卷，保留源版本、构建身份和截图。Windows 工作流验证的是 WSL2 Ubuntu 内的 Docker Engine，不涵盖 Docker Desktop 的安装过程。实际通过范围以工作流结果为准，不用 Linux 成功替代 Windows 结果。
 
 本机开发者可以用 `WORLD_ATELIER_PORT=48921` 为独立 Compose 项目设置测试端口；映射内外端口必须一致。浏览器回归设置 `WORLD_ATELIER_TEST_EXTERNAL_ORIGIN=http://127.0.0.1:48921` 后检查已有隔离服务，不启动第二个后端。该入口仅接受测试端口，不对正式 48910 自动创建测试账号。
+
+### 实测记录（2026-10-30）
+
+运行代码提交为 [`db9e357`](https://github.com/BruceCheng1995/WorldAtelier/commit/db9e357c6a43840c4b704db47bdbab918219a222)，[对应工作流及截图、JSON 报告](https://github.com/BruceCheng1995/WorldAtelier/actions/runs/41033509968)分别保存每种环境的结果。
+
+| 环境 | 实际检查 | 结果 |
+| --- | --- | --- |
+| Linux AMD64 / Ubuntu 24.04 | 镜像构建、33 项隔离与日志检查（含真实 Godot 运行）；同一 Chrome 进程依次打开 9 个工程 main 分支的编辑场景及 Play；重启后重新登录并核对 9 工程、11 分支 | 通过 |
+| Windows AMD64 / WSL2 Ubuntu 24.04 | 同一镜像与隔离检查；Windows Chrome 连续打开全部 9 个工程的 main 分支，再验证重启保留 | 通过 |
+| Windows 独立冷启动对照 | 新部署优先打开小小梦魇，核对实际 `ready → loaded`、固定构建、tick 80 → 152，再验证重启保留 | 通过 |
+
+完整回归保留同一 Chrome 进程，每个工程使用新的浏览器上下文。每个工程同时核对分支 head、编辑文档、Play 入口和构建身份；仅出现画面或旧视口的 ready 标记不能通过。Windows 大型工程的启动还覆盖分阶段等待：本次场景初始化约 137 秒，引擎启动时间不再挤占场景的完整时限。两阶段各 180 秒，重复就绪消息不会续期，加载期间可停止。
+
+本机 Linux ARM64 容器另完成了 9 个工程、真实隔离及重启保留检查；macOS 原生入口在最终启动修复后复测了俄罗斯方块与兽人必须死。案例镜像的范围仍为浏览与独立 Play，完整创作 Agent 配置继续见 macOS 指南。
