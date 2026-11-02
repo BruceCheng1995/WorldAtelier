@@ -4,7 +4,7 @@ import {openRuntimePlaceholder,navigateStandaloneRuntime} from './runtime-access
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const terminal = new Set(['completed', 'partial', 'failed', 'interrupted']);
 const webCompatibilityPolicy = 'world-atelier-single-thread-local-http-v1';
-const compatibleWeb = job => job?.web_compatibility?.policy === webCompatibilityPolicy;
+const compatibleWeb = job => job?.web_compatibility?.policy === webCompatibilityPolicy || (job?.web_engine==='three'&&job.web_compatibility?.policy==='world-atelier-three-web-1');
 const statusLabels = {queued:'等待后台处理', running:'后台处理中', completed:'已完成', partial:'部分完成', failed:'失败', interrupted:'处理已中断'};
 const targetLabels = {source:'Godot 工程', web:'Web', windows:'Windows', macos:'macOS', linux:'Linux', android:'Android', ios:'iOS'};
 const progressOf = job => Math.max(0, Math.min(100, Number(job?.progress) || 0));
@@ -167,7 +167,7 @@ export class ReleaseBuilds {
     const source = view.type === 'source';
     title.textContent = source ? '确认导出 Godot 工程' : '确认打包应用';
     const scene = view.context.resources?.find(resource => resource.id === view.entrySceneId);
-    this.body.innerHTML = `${this.fixedVersion(view.context)}<p class="release-build-lead">${source ? '将这个固定版本导出为可下载的 Godot 工程。' : '将这个固定版本交给后台，生成以下应用。'}</p>${source ? '<div class="release-build-summary"><strong>Godot 工程 · ZIP</strong><span>包含场景、预制件、模型资产和运行脚本。</span></div>' : `<div class="release-build-summary"><strong>${view.targetIds.map(id => escape(this.targets.find(target => target.id === id)?.label || targetLabels[id] || id)).join(' / ')}</strong><span>入口场景：${escape(scene?.name || view.entrySceneId)}</span></div>`}<p class="release-build-note">${source ? '完成后下载到本机。' : '应用包完成后下载；Web 版本在新页面打开。'}任务在后台继续，关闭窗口后可从顶部查看进度。</p><p class="release-build-fixed-note">使用上方已固定的源版本；后续协作编辑会进入新的版本。</p><p class="release-build-error" role="alert">${escape(view.error)}</p>`;
+    this.body.innerHTML = `${this.fixedVersion(view.context)}<p class="release-build-lead">${source ? '将这个固定版本导出为可下载的 Godot 工程。' : '将这个固定版本交给后台，生成以下应用。'}</p>${source ? '<div class="release-build-summary"><strong>Godot 工程 · ZIP</strong><span>包含同一源版本的场景、预制件、模型和脚本。Godot 运行原生玩法；Web 入口的行为可通过引擎迁移任务移植。</span></div>' : `<div class="release-build-summary"><strong>${view.targetIds.map(id => escape(this.targets.find(target => target.id === id)?.label || targetLabels[id] || id)).join(' / ')}</strong><span>入口场景：${escape(scene?.name || view.entrySceneId)}</span></div>`}<p class="release-build-note">${source ? '完成后下载到本机。' : '应用包完成后下载；Web 版本在新页面打开。'}任务在后台继续，关闭窗口后可从顶部查看进度。</p><p class="release-build-fixed-note">使用上方已固定的源版本；后续协作编辑会进入新的版本。</p><p class="release-build-error" role="alert">${escape(view.error)}</p>`;
     this.button(source ? '取消' : '返回选择', () => { if (source) this.close(); else { view.type = 'configure'; view.error = ''; this.render(); } }, {disabled:this.submitting});
     const pendingUncertain = !!view.uncertain;
     this.button(this.submitting ? '正在提交…' : pendingUncertain ? '核对原任务' : source ? '确认导出' : '确认打包', () => this.submit(), {primary:true, disabled:this.submitting || !canBuild(this.context)});
@@ -318,17 +318,21 @@ export class ReleaseBuilds {
     if (preview && !preview.popup.closed) preview.popup.close();
   }
 
-  async playWeb(entrySceneId, trigger) {
+  async playWeb(entrySceneId, trigger, fixed = null) {
+    if(fixed&&(this.readDenied||!this.key||this.context?.project_id!==fixed.projectId||this.context?.branch_id!==fixed.branchId||
+       this.context?.source_revision!==fixed.revision||this.context?.user_id!==fixed.actorId||this.context?.role!==fixed.role||
+       !['owner','editor','viewer'].includes(fixed.role)))throw Error('预制件的源版本或访问权限已变化，请重新打开后核对。');
     if (!this.key || this.readDenied || !this.context.source_revision) return;
     const context = structuredClone(this.context);
     const scene = context.resources?.find(resource => resource.id === entrySceneId && resource.kind === 'scene' && resource.purpose !== 'prefab_test');
-    if (!scene) return;
+    if (!scene){if(fixed)throw Error('此固定版本没有选中的游戏关卡');return;}
+    if(fixed&&this.webPreview&&!this.webPreview.popup.closed)throw Error('已有网页试玩正在准备，请稍后重试。');
     if (this.webPreview && !this.webPreview.popup.closed) { this.open('history', trigger); return; }
     const popup = openRuntimePlaceholder(`${scene.name} · 正在准备 Web 游玩`);
     this.open('history', trigger);
     if (!popup) { this.error = '浏览器拦截了新页面，请允许此站点打开弹出式窗口后重试。'; this.renderTopbar(); this.render(); return; }
     const preview = this.webPreview = {popup, context, entrySceneId, generation:this.generation, requestId:randomUUID(), jobId:null, opening:true, controller:new AbortController()};
-    popup.document.body.textContent = '正在准备固定的 Godot 游戏工程…';
+    popup.document.body.textContent = '正在准备固定版本的网页游戏…';
     const alive = () => this.current(preview.generation) && this.webPreview === preview && !popup.closed;
     try {
       const native = context.schema === 'creation-native-1';
@@ -338,7 +342,7 @@ export class ReleaseBuilds {
         context.source_revision = playable.source_revision;
         entrySceneId = playable.resource_id ?? entrySceneId;
       }
-      const result = await prepareGamePlay({request:this.request, projectId:context.project_id, branchId:context.branch_id, revision:context.source_revision, entrySceneId, requestId:preview.requestId, signal:preview.controller.signal, onProgress:job=>{
+      const result = await prepareGamePlay({request:this.request, projectId:context.project_id, branchId:context.branch_id, revision:context.source_revision, entrySceneId, useComparisonView:!fixed, requestId:preview.requestId, signal:preview.controller.signal, onProgress:job=>{
         if (!alive()) { preview.controller.abort(); return; }
         this.jobs = [job, ...this.jobs.filter(prior=>prior.id !== job.id)]; preview.jobId = job.id;
         if (this.view?.type === 'history') { this.view.context = context; this.view.jobId = job.id; }

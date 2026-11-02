@@ -6,16 +6,18 @@ export class GodotPreview {
     this.nonce=randomUUID();
     this.worldContext=null;this.worldQueue=new Map();this.pendingPresence=null;this.pendingDevelopment=null;this.pendingTransient=null;this.pendingCamera=null;this.disposed=false;
     this.frame=document.createElement('iframe');
-    this.frame.title=mode==='main'?'Godot 场景模型视口':'Godot 对象模型预览';
+    this.frame.title=mode==='main'?'场景编辑视口':'对象模型预览';
     this.frame.allow='fullscreen'; this.frame.setAttribute('aria-label',this.frame.title);
     this.status=document.createElement('div'); this.status.className='render-status'; this.status.setAttribute('role','status');
-    this.status.textContent='正在启动 Godot 3D…'; host.append(this.frame,this.status);
+    this.status.textContent='正在准备视口…'; host.append(this.frame,this.status);
     this.listener=e=>this.receive(e); window.addEventListener('message',this.listener);
     this.suppliedRuntimeManifest=runtimeManifest;
     this.runtimeReady=this.loadRuntime();this.runtimeReady.catch(()=>{});
   }
+  get editorStartupText(){return '正在启动 Godot 编辑器…';}
   async loadRuntime(){
     try{
+      this.status.textContent=this.editorStartupText;
       const response=await fetch('/preview-runtime/manifest.json',{cache:'no-store'});if(!response.ok)throw new Error('Godot 客户端清单未就绪');
       const manifest=await response.json();if(!/^[a-f0-9]{64}$/.test(manifest.build_id??''))throw new Error('Godot 客户端版本无效');
       if(this.disposed)return manifest;
@@ -95,7 +97,7 @@ export class GodotPreview {
     const payload=structuredClone({...scene,type:'scene',seq});
     let resolve,reject; const promise=new Promise((a,b)=>{resolve=a;reject=b});
     this.pending={payload,promise,resolve,reject,timer:setTimeout(()=>{this.status.textContent='模型加载超时，可重新打开此文档重试。';this.key=null;this.diagnostic('asset_load','模型加载超时');this.reject(new Error('模型加载超时'));},60000)};
-    this.status.textContent=this.ready?'加载模型…':'正在启动 Godot 3D…';
+    this.status.textContent=this.ready?'加载模型…':this.editorStartupText;
     if(this.ready)this.post(payload);
     return promise;
   }
@@ -214,7 +216,7 @@ export class PrefabDragPlacement {
     document.addEventListener('keydown',this.key);window.addEventListener('blur',this.end);
     this.overlay.addEventListener('dragover',this.over);this.overlay.addEventListener('dragleave',this.leave);this.overlay.addEventListener('drop',this.drop);
   }
-  feedback(message){if(!this.active||message.drag_id!==this.active.dragId)return;this.overlay.dataset.ghostState=message.status;this.hint.textContent=message.status==='invalid'?`此处无法放置 · ${this.active.name}`:`◇ ${this.active.name}`;}
+  feedback(message){if(!this.active||message.drag_id!==this.active.dragId)return;this.overlay.dataset.ghostState=message.status;this.hint.textContent=message.status==='invalid'?`此处无法放置 · ${this.active.name}`:message.status==='fallback'?`仅显示落点 · ${this.active.name}`:`◇ ${this.active.name}`;}
   cancel(){if(this.active)this.clear(this.active);this.active=null;this.sourceCard?.classList.remove('is-dragging');this.sourceCard=null;this.overlay.hidden=true;this.overlay.classList.remove('is-over');}
   dispose(){this.cancel();this.catalog.removeEventListener('dragstart',this.start);document.removeEventListener('dragend',this.end);document.removeEventListener('keydown',this.key);window.removeEventListener('blur',this.end);this.overlay.remove();}
 }
@@ -353,7 +355,7 @@ export class PrefabThumbnails {
           // A server-derived renderer fingerprint includes native runtime,
           // baker and toolchain without starting a build on a cache hit.
           if(/^[a-f0-9]{64}$/.test(scene.thumbnail_renderer_identity??'')&&/^[a-f0-9]{64}$/.test(scene.source_identity??'')&&scene.native_scene_path){
-            diskKey=JSON.stringify([scope,'native-thumbnail-1',scene.thumbnail_renderer_identity,scene.source_identity,scene.native_scene_path,entry.key]);
+            diskKey=JSON.stringify([scope,scene.three_projection?'three-thumbnail-1':'native-thumbnail-1',scene.thumbnail_renderer_identity,scene.source_identity,scene.native_scene_path,entry.key]);
             const url=this.persistentCache.get(diskKey);if(url)result={url};
           }
         }else if(scope){

@@ -146,8 +146,14 @@ export class CreationStore extends Storage {
     const revision={project_id:projectId,parents,manifest:clone(manifest),actor_id:actorId,origin,created_at:Date.now()};
     revision.id=`src-${hash(revision)}`;this.put('creator_revision',revision);return revision;
   }
-  branchView(user,p,b) {
+  branchView(user,p,b,revision=null) {
     const branch=this.branchFor(user,p,b);
+    if(revision!==null){
+      if(!['owner','editor','viewer'].includes(this.roleFor(user,this.projectFor(user,p))))fail(403,'固定版本对照需要源稿访问权限');
+      const fixed=this.readRevision(revision);
+      if(!fixed||fixed.project_id!==p||fixed.manifest.schema!==NATIVE_SCHEMA||!this.ancestor(revision,branch.head))fail(409,'对照版本不属于此原生分支');
+      return {...branch,presentation:presentationOf(branch.presentation),live_head:branch.head,head:revision,manifest:fixed.manifest};
+    }
     return {...branch,presentation:presentationOf(branch.presentation),manifest:this.get('creator_revision',branch.head).manifest};
   }
   ancestor(ancestor,head) {

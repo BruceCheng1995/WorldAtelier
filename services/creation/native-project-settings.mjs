@@ -21,3 +21,25 @@ export function nativeSourceSettingsFromWorkspace(original,prepared,edited){
   }
   return result;
 }
+
+// The static editor uses the native game's aspect policy for picking and framing.
+export function nativeViewportSettings(projectText){
+  const value=key=>field(projectText,'display',key).value;
+  const dimension=(key,fallback)=>{const n=Number(value(key));return Number.isFinite(n)&&n>0?n:fallback;};
+  const width=dimension('window/size/viewport_width',1152),height=dimension('window/size/viewport_height',648);
+  const mode=(value('window/stretch/mode')??'"disabled"').replace(/^&?"|"$/g,'');
+  const aspect=(value('window/stretch/aspect')??'"keep"').replace(/^&?"|"$/g,'');
+  const fixed=['canvas_items','viewport'].includes(mode)&&aspect==='keep';
+  return {viewport:[width,height],aspect_ratio:fixed?width/height:null,stretch_mode:mode,stretch_aspect:aspect};
+}
+export function nativeViewportAspectRatio(projectText){return nativeViewportSettings(projectText).aspect_ratio;}
+
+export function nativeHasAutoload(projectText){
+  let autoload=false;
+  for(const line of projectText.split(/\r?\n/)){
+    const section=line.trim().match(/^\[([^\]]+)\]/);
+    if(section)autoload=section[1]==='autoload';
+    else if(autoload&&/^\s*[^;#=\s][^=]*=/.test(line))return true;
+  }
+  return false;
+}

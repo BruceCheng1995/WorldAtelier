@@ -51,7 +51,24 @@ export class ViewportAnnotations{
     this.pins.hidden=!scope?.editing;this.button.disabled=!scope?.available||this.busy;
   }
   enter(){this.update();if(this.button.disabled)return;this.active=true;if(this.dimension()==='2d'&&(this.tool==='volume'||this.tool==='brush'&&this.target==='space')){this.tool='point';this.target='objects';}this.awaitMode();this.render();this.command();this.onChange();this.focusViewport();}
-  awaitMode(){clearTimeout(this.modeTimer);this.root.classList.add('is-entering');this.modeTimer=setTimeout(()=>{this.root.classList.remove('is-entering');this.active=false;this.render();this.command();this.onChange();this.onError(Error('批注工具尚未就绪，请刷新工作台后重试'));},5000);}
+  awaitMode(){
+    clearTimeout(this.modeTimer);
+    this.root.classList.add('is-entering');
+    const key=this.documentKey;
+    const waiting=()=>this.documentKey===key&&this.active&&this.root.classList.contains('is-entering');
+    const fail=error=>{
+      if(!waiting())return;
+      this.root.classList.remove('is-entering');this.active=false;this.render();this.command();this.onChange();this.onError(error);
+    };
+    this.modeTimer=setTimeout(()=>{
+      const switching=this.preview()?.annotationSwitch;
+      if(switching){
+        // A native annotation build can outlast the ordinary command ACK.
+        // Keep the five-second deadline for the actual loaded editor.
+        switching.then(()=>{if(waiting())this.awaitMode();},fail);
+      }else fail(Error('批注工具尚未就绪，请刷新工作台后重试'));
+    },5000);
+  }
   focusViewport(){this.preview()?.frame?.contentWindow?.focus();}
   spatialEditable(){return this.pending?.dimension==='3d'&&(this.pending.annotation_kind==='point'||['box','prism'].includes(this.pending.geometry?.shape))&&this.pending.source_revision===this.scope()?.revision;}
   command(extra={}){

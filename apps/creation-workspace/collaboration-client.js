@@ -62,7 +62,7 @@ export class CreationClient extends EventTarget {
     };
     ws.onerror=()=>this.emit('status',{state:'error',reason:'实时连接失败，正在等待重新连接'});
   }
-  subscribe(scope){this.scope={project_id:scope.project_id,branch_id:scope.branch_id,resource_id:scope.resource_id,...(scope.known_head?{known_head:scope.known_head}:{})};this.generation++;this.send({type:'subscribe',...this.scope,generation:this.generation});}
+  subscribe(scope){this.scope={project_id:scope.project_id,branch_id:scope.branch_id,resource_id:scope.resource_id,...(scope.known_head?{known_head:scope.known_head}:{}),...(scope.comparison_revision?{comparison_revision:scope.comparison_revision}:{})};this.generation++;this.send({type:'subscribe',...this.scope,generation:this.generation});}
   unsubscribe(){this.send({type:'unsubscribe'});this.scope=null;this.generation++;}
   selectSessionBoundary(sessionId=null){this.session=sessionId;this.after=0;this.sessionPaused=true;}
   subscribeSession(sessionId,after=0){this.sessionPaused=false;this.session=sessionId;this.after=after;this.send({type:'session_subscribe',session_id:sessionId,after,compact:true});}

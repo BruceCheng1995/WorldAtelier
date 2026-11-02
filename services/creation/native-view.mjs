@@ -30,7 +30,7 @@ export function nativeMatrix(value){
  * gameplay from these rows; runtime resolves native_path on the actual scene. */
 export function nativeObjectViews(manifest,rid,{project_id,branch_id}={}){
   const doc=manifest.resources[rid];if(!doc)fail(404,'原生资源不存在');
-  const nodes=doc.native_nodes??[],byPath=new Map(nodes.map(n=>[n.path,n])),visible=new Map(),result=[];
+  const nodes=doc.native_nodes??[],byPath=new Map(nodes.map(n=>[n.path,n])),visible=new Map(),result=[],seenIds=new Set();
   const resourceByPath=new Map(Object.values(manifest.resources).map(r=>['res://'+r.path.replace(/^res:\/\//,''),r.id]));
   const technical=node=>Boolean(node.metadata?.wa_component||node.metadata?.wa_asset_model);
   for(const node of nodes){
@@ -47,7 +47,8 @@ export function nativeObjectViews(manifest,rid,{project_id,branch_id}={}){
     if(mount?.metadata?.wa_legacy_object_id&&!node.metadata?.wa_legacy_object_id&&nodes.some(child=>child.path.startsWith(node.path+'/')&&child.metadata?.wa_legacy_object_id===mount.metadata.wa_legacy_object_id))continue;
     const instance=node.instance_ids?.length>0,target=nativeTarget(node);
     const id=String(instance&&!node.metadata?.wa_legacy_flat_instance?hierarchyRuntimeId({instance_path:node.instance_ids,definition_node_id:node.node_id}):node.metadata?.wa_legacy_object_id??node.node_id);
-    if(result.some(row=>row.id===id))fail(422,'原生对象展示身份重复',{resource_id:rid,object_id:id});
+    if(seenIds.has(id))fail(422,'原生对象展示身份重复',{resource_id:rid,object_id:id});
+    seenIds.add(id);
     const matrix=nativeMatrix(node.world_transform),localMatrix=nativeMatrix(node.local_transform),controlLayout=nativeControlLayout(node,parent);
     let world=null,local=null;try{if(matrix)world=worldTransform(matrix);if(localMatrix)local=worldTransform(localMatrix);}catch{}
     const address={...(project_id?{project_id}:{}),...(branch_id?{branch_id}:{}),resource_id:rid,instance_path:clone(target.instance_ids),definition_node_id:node.node_id};

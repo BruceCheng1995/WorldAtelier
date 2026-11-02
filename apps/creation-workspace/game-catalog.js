@@ -216,3 +216,47 @@ export class GameCatalog {
     render();
   }
 }
+
+// Shared URLs capture authoring context. Runtime worlds remain per window.
+const revisionId=/^src-[a-f0-9]{64}$/;
+const fields=['compareRevision','compareResource','compareSelection','compareCamera'];
+const vector=value=>Array.isArray(value)&&value.length===3&&value.every(n=>Number.isFinite(n)&&Math.abs(n)<1e9);
+
+export function comparisonCamera(camera) {
+  if(!camera||!vector(camera.position)||!vector(camera.target))return null;
+  if(camera.dimension==='2d'&&Number.isFinite(camera.zoom)&&camera.zoom>0)
+    return {dimension:'2d',target:camera.target,position:camera.position,zoom:camera.zoom,view:'canvas'};
+  if(camera.dimension==='3d'&&['top','right','front','perspective'].includes(camera.view))
+    return {dimension:'3d',view:camera.view,target:camera.target,position:camera.position};
+  return null;
+}
+
+export function comparisonLink(href,{revision,resource,selected,camera,godot}) {
+  if(!revisionId.test(revision)||!resource)throw Error('请等待固定源文档加载完成');
+  const url=new URL(href);
+  if(catalogRoute(url.hash).kind!=='branch')throw Error('请先打开要对照的分支');
+  url.search=''; // Shared comparison links never forward invitation tokens or other query parameters.
+  url.searchParams.set('compareRevision',revision);
+  url.searchParams.set('compareResource',resource);
+  for(const [key,value] of [['compareSelection',selected],['compareCamera',comparisonCamera(camera)]]){
+    if(value)url.searchParams.set(key,typeof value==='string'?value:JSON.stringify(value));
+    else url.searchParams.delete(key);
+  }
+  if(godot)url.searchParams.set('engine','godot');else url.searchParams.delete('engine');
+  return url;
+}
+
+export function clearComparison(url) {
+  for(const field of fields)url.searchParams.delete(field);
+  return url;
+}
+
+export function readComparison(href) {
+  const url=new URL(href),route=catalogRoute(url.hash),values=url.searchParams;
+  if(route.kind!=='branch'||!values.has('compareRevision'))return null;
+  const revision=values.get('compareRevision'),resource=values.get('compareResource');
+  // Report malformed shared links during branch entry, without falling back to head.
+  let camera=null;
+  try{camera=comparisonCamera(JSON.parse(values.get('compareCamera')));}catch{}
+  return {...route,revision,resource,selected:values.get('compareSelection'),camera,valid:revisionId.test(revision)&&Boolean(resource)};
+}

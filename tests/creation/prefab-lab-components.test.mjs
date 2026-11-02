@@ -174,7 +174,8 @@ test('closing a preparing lab aborts its request and ignores late completion', a
     window.lab = mountPrefabLab(document.querySelector('#host'), {request});
     lab.open({subject:{id:'pea', name:'豌豆射手'}, scenarios:[{id:'preview-pea', name:'攻击测试'}], revision:'revision-a', projectId:'project-a', branchId:'main'});
   });
-  assert.equal(await page.locator('iframe').count(), 1);
+  assert.equal(await page.locator('.prefab-lab').getAttribute('data-status'),'preparing');
+  assert.equal(await page.locator('iframe').count(),0,'game frame mounts only after fixed build access');
   await page.getByRole('button', {name:'返回编辑', exact:true}).click();
   assert.equal(await page.evaluate(() => requestWasAborted), true);
   assert.equal(await page.locator('iframe').count(), 0);

@@ -1,3 +1,4 @@
+import {nativePatchOperations} from '../../apps/creation-workspace/native-authoring.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -80,11 +81,11 @@ test('collaboration access: real approval, invitations, role revocation, inbox a
   });
 
   await check('approved_editor_real_write_and_private_session_boundary',async()=>{
-    const before=ok(await request('GET',branch(p),B)),target=before.manifest.resources['scene-harbor'].objects[0];
-    const write=ok(await request('POST',branch(p)+'/transactions',B,{transaction_id:uid('approved-edit'),base_revision:before.head,ops:[{type:'patch_object',resource_id:'scene-harbor',object_id:target.id,expected_version:target.version,patch:{name:'Collaborator approved real edit'}}]}));assert.notEqual(write.revision,before.head);
+    const before=ok(await request('GET',branch(p),B)),target=ok(await request('GET',branch(p)+'/resolved-scene?resource_id=scene-harbor&revision='+before.head,B)).objects.find(row=>row.dimension==='3d'&&row.native_edit_transform);
+    const write=ok(await request('POST',branch(p)+'/transactions',B,{transaction_id:uid('approved-edit'),base_revision:before.head,ops:nativePatchOperations(target,{position:[1,0,0]},{resourceId:'scene-harbor',manifest:before.manifest})}));assert.notEqual(write.revision,before.head);
     privateSession=ok(await request('POST',branch(p)+'/sessions',A,{title:'Owner private sentinel',visibility:'private'}),201);sharedSession=ok(await request('POST',branch(p)+'/sessions',A,{title:'Explicitly shared owner session'}),201);ok(await request('PATCH',`/sessions/${sharedSession.id}`,A,{visibility:'shared',draft:'shared-read-only'}));
     assert.equal((await request('GET',`/sessions/${privateSession.id}`,B)).status,403);ok(await request('GET',`/sessions/${sharedSession.id}`,B));assert.equal((await request('PATCH',`/sessions/${sharedSession.id}`,B,{draft:'forbidden'})).status,403);
-    bSession=ok(await request('POST',branch(p)+'/sessions',B,{title:'Applicant private retained draft'}),201);ok(await request('PATCH',`/sessions/${bSession.id}`,B,{draft:'retain while read-only'}));
+    bSession=ok(await request('POST',branch(p)+'/sessions',B,{title:'Applicant private retained draft',visibility:'private'}),201);ok(await request('PATCH',`/sessions/${bSession.id}`,B,{draft:'retain while read-only'}));
     assert.equal((await request('GET',`/sessions/${bSession.id}`,A)).status,403);
     originalInvite=ok(await request('POST',route(p)+'/invites',A,{request_id:uid('before-demotion'),role:'editor'}),201);
     return {revision:write.revision,private_sessions_isolated:true};
@@ -93,8 +94,8 @@ test('collaboration access: real approval, invitations, role revocation, inbox a
   await check('revoke_current_write_and_session_subscription_authority',async()=>{
     const scenePeer=await connect(B),sessionOnlyPeer=await connect(B);scenePeer.send({type:'subscribe',project_id:p,branch_id:'main',resource_id:'scene-harbor',generation:1});await scenePeer.packet('baseline');
     sessionOnlyPeer.send({type:'session_subscribe',session_id:bSession.id,after:0});await sessionOnlyPeer.packet('session_events');
-    const before=ok(await request('GET',branch(p),B)),target=before.manifest.resources['scene-harbor'].objects[0];
-    const drag={type:'drag_preview',generation:1,source_revision:before.head,object_id:target.id,expected_version:target.version,position:[1,2,3],rotation:[0,0,0],scale:[1,1,1]};scenePeer.send(drag);await scenePeer.packet('drag_preview');
+    const before=ok(await request('GET',branch(p),B)),target=ok(await request('GET',branch(p)+'/resolved-scene?resource_id=scene-harbor&revision='+before.head,B)).objects.find(row=>row.dimension==='3d'&&row.native_edit_transform);
+    const drag={type:'drag_preview',generation:1,source_revision:before.head,object_id:target.id,expected_version:target.version,dimension:'3d',address:target.address,native_target:target.native_mount_target??target.native_target,source_identity:before.manifest.source_identity,expected_ancestry_hash:target.ancestry_hash,world_matrix:target.native_edit_world_matrix,local_transform:target.native_edit_transform};scenePeer.send(drag);await scenePeer.packet('drag_preview');
     const preserveMark=scenePeer.messages.length,unrelated=ok(await request('POST',route(p)+'/access-requests',C,{request_id:uid('unrelated-request'),reason:'This request must not end another editor drag.'}),201).request;
     await scenePeer.packet('project_permissions',m=>m.project_id===p,preserveMark);
     assert.equal(scenePeer.messages.slice(preserveMark).some(m=>m.type==='drag_end'),false,'read-only access request must preserve active editor drag');

@@ -1,4 +1,4 @@
-// Fresh deployment smoke test against the canonical service and actual Godot
+// Fresh deployment smoke test against the canonical service and actual game
 // Web exports. No Agent, OS input, foreground engine or synthetic runtime ACKs.
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -23,7 +23,7 @@ async function waitForEditor(page,{projectId,revision,documentId}){
   while(Date.now()<deadline){
     const failure=[...failedBuilds.values()].find(job=>job.project_id===projectId&&job.source_revision===revision&&job.purpose==='native_preview');
     if(failure)throw Error('Native editor build failed: '+JSON.stringify(failure.error));
-    observed=await page.locator('#mainPreview').evaluate(node=>({state:node.dataset.previewState,document:node.dataset.loadedDocument,source:node.dataset.displayedSource,status:node.querySelector('.render-status')?.textContent}));
+    observed=await page.locator('#mainPreview').evaluate(node=>({state:node.dataset.previewState,engine:node.dataset.editorEngine,document:node.dataset.loadedDocument,source:node.dataset.displayedSource,status:node.querySelector('.render-status')?.textContent}));
     if(observed.state==='ready'&&observed.document===documentId&&observed.source===revision)return observed;
     if(observed.state==='error')throw Error('Current project editor failed: '+JSON.stringify({projectId,revision,observed}));
     await wait(250);
@@ -56,7 +56,7 @@ try{
       window.addEventListener('message',event=>{
         const packet=event.data;
         if(packet?.source!=='world-atelier-game'||!['ready','loaded','runtime_error','error'].includes(packet.type))return;
-        const frame=document.querySelector('#mainPreview iframe[title="Godot 独立游戏"]'),url=frame?.src?new URL(frame.src,location.href):null;
+        const frame=document.querySelector('#mainPreview[data-runtime-kind="game"] iframe:not([hidden])'),url=frame?.src?new URL(frame.src,location.href):null;
         const current_frame=Boolean(frame&&event.source===frame.contentWindow&&event.origin===url?.origin&&packet.nonce===url?.searchParams.get('nonce'));
         if(window.__defaultRuntimeEvidence.length<40)window.__defaultRuntimeEvidence.push({at:new Date().toISOString(),type:packet.type,origin:event.origin,current_frame,source_revision:packet.source_revision,canonical_identity:packet.canonical_identity,document_id:packet.document_id,message:packet.message});
       });
@@ -125,6 +125,10 @@ try{
         await expect(page.locator('#currentDocumentKind')).toHaveText('场景');
         await waitForEditor(page,pins);
       }
+      await page.route('**/play-build',async route=>{
+        row.visible_frames_before_build=await page.locator('#mainPreview iframe:not([hidden])').count();
+        await route.continue();
+      },{times:1});
       await page.locator('[data-mode="play"]').click();
       const deadline=Date.now()+600000;let playing=false;row.mode_transitions=[];
       while(Date.now()<deadline){
@@ -138,6 +142,7 @@ try{
         if(playing)break;await wait(1000);
       }
       assert.ok(playing,'Canonical game did not reach playing state');
+      assert.equal(row.visible_frames_before_build,0,'Mount the game iframe only after its isolated launch address is ready');
       row.play=await page.locator('#playControls').evaluate(node=>({...node.dataset}));
       assert.equal(row.play.displayRevision,pins.revision);
       row.play_document=await page.locator('#mainPreview').getAttribute('data-loaded-document');
@@ -146,12 +151,15 @@ try{
       row.build_identity=await page.evaluate(async id=>{
         const response=await fetch(`/creation-api/builds/${id}`,{headers:{authorization:'Bearer '+sessionStorage.getItem('world-atelier-creator-token')}});
         const result=await response.json();if(!response.ok)throw Error(JSON.stringify(result));
-        const {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status,toolchain_identity}=result.job;
-        return {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status,execution:toolchain_identity?.execution??null};
+        const {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status,toolchain_identity,web_engine}=result.job;
+        return {project_id,branch_id,source_revision,entry_scene_id,canonical_identity,purpose,status,web_engine:web_engine??'godot',execution:toolchain_identity?.execution??null};
       },row.build);
+      assert.equal(row.editor.engine,'three');
+      assert.equal(row.build_identity.web_engine,'three');
       assert.equal(row.build_identity.project_id,project.id);assert.equal(row.build_identity.branch_id,'main');
       assert.equal(row.build_identity.source_revision,pins.revision);assert.equal(row.build_identity.entry_scene_id,fixed.resource_id);
       assert.equal(row.build_identity.purpose,'play');assert.equal(row.build_identity.status,'completed');
+      await expect(page.locator('#viewportStateSummary')).toContainText(row.build_identity.web_engine==='three'?'Three.js 试玩':'Godot 试玩');
       assert.equal(await page.locator('#mainPreview').getAttribute('data-runtime-build'),row.build_identity.canonical_identity);
       await page.waitForFunction(({tick,revision,build})=>document.querySelector('#playControls')?.dataset.displayRevision===revision&&document.querySelector('#mainPreview')?.dataset.gameBuild===build&&Number(document.querySelector('#playControls').dataset.tick)>tick+20,{tick:Number(row.play.tick),revision:pins.revision,build:row.build},{timeout:30000});
       row.later_tick=Number(await page.locator('#playControls').getAttribute('data-tick'));

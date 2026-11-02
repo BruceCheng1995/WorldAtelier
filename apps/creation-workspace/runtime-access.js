@@ -1,5 +1,5 @@
 import {randomUUID} from './client-platform.js';
-import {readSaveDomain,serializeSave} from './runtime-storage.js';
+import {readSaveDomain,serializeSave,chooseSaveAction} from './runtime-storage.js';
 
 export function validateRuntimeAccess(access,jobId){
   const url=new URL(access?.web_url??'',location.origin);
@@ -16,18 +16,13 @@ export function openRuntimePlaceholder(title){
 }
 
 function chooseMigration(popup,domain,record){
-  return new Promise(resolve=>{
-    const doc=popup.document;doc.body.replaceChildren();doc.body.style.cssText='font:16px/1.7 system-ui;padding:36px;background:#10151c;color:#e1e9f1;max-width:720px;margin:auto';
-    const title=doc.createElement('h2');title.textContent='此游戏有旧版浏览器存档';
-    const note=doc.createElement('p');note.textContent=`游戏现在在隔离空间中运行。已找到 ${record.entries.filter(row=>(row.value.mode&0xf000)===0x8000).length} 个存档文件。迁移会保留旧存档；目标空间已有不同内容时不会覆盖。`;
-    doc.body.append(title,note);
-    for(const [label,value]of [['迁移存档并打开','migrate'],['在隔离空间打开，保留旧存档','fresh'],['取消','cancel']]){
-      const button=doc.createElement('button');button.textContent=label;button.style.cssText='padding:10px 16px;margin:6px 8px 6px 0';button.onclick=()=>{clearInterval(timer);resolve(value);};doc.body.append(button);
-    }
-    const exportButton=doc.createElement('button');exportButton.textContent='导出旧存档备份';exportButton.style.cssText='padding:10px 16px;margin:6px 8px 6px 0';
-    exportButton.onclick=()=>{const url=URL.createObjectURL(new Blob([serializeSave(domain,record.entries)],{type:'application/json'})),anchor=doc.createElement('a');anchor.href=url;anchor.download='world-atelier-save-backup.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),60000);};doc.body.append(exportButton);
-    const timer=setInterval(()=>{if(popup.closed){clearInterval(timer);resolve('cancel');}},300);
-  });
+  const doc=popup.document,count=record.entries.filter(row=>(row.value.mode&0xf000)===0x8000).length;
+  const backup=()=>{
+    const url=URL.createObjectURL(new Blob([serializeSave(domain,record.entries)],{type:'application/json'})),anchor=doc.createElement('a');
+    anchor.href=url;anchor.download='world-atelier-save-backup.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  };
+  return chooseSaveAction(doc.body,{heading:'此游戏有旧版浏览器存档',detail:`游戏现在在隔离空间中运行。已找到 ${count} 个存档文件。迁移保留旧存档，目标空间出现不同内容时会中止。`,
+    actions:[{label:'迁移存档并打开',value:'migrate'},{label:'在隔离空间打开，保留旧存档',value:'fresh'},{label:'取消',value:'cancel'},{label:'导出旧存档备份',run:backup}]});
 }
 
 function chooseUnknownStorage(popup){
@@ -61,7 +56,7 @@ export async function navigateStandaloneRuntime(popup,access,{current=()=>true}=
   const url=validateRuntimeAccess(access,access.build_id);
   if(popup.closed||!current())return false;
   const key='wa-runtime-save-choice:'+access.runtime_origin+':'+(access.storage?.prefix??access.build_id);
-  if(!access.storage&&!localStorage.getItem(key)){
+  if(!access.storage&&access.storage_status!=='three_branch_storage'&&!localStorage.getItem(key)){
     if(!await chooseUnknownStorage(popup)||popup.closed||!current())return false;
     localStorage.setItem(key,'unknown-explicit-continue');
   }

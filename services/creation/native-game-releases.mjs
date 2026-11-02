@@ -4,6 +4,7 @@ import {clone,fail,hash,identifier} from './schema.mjs';
 import {NATIVE_SCHEMA,nativeSourceIdentity} from './native-source.mjs';
 import {GAME_PROJECT_CONTRACT} from './project-snapshot.mjs';
 import {CANONICAL_WEB_POLICY} from '../../tools/canonical-game-web.mjs';
+import {THREE_ENTRY, THREE_WEB_POLICY} from './three-web-build.mjs';
 import {isPrefabTest} from './prefab-tests.mjs';
 
 export const NATIVE_GAME_RELEASE_FORMAT='world-atelier-native-game-release-v1';
@@ -29,9 +30,11 @@ export class NativeGameReleases {
     if(reachable&&!this.store.ancestor(sourceRevision,(branch??this.store.get('creator_branch',p+':'+b))?.head))fail(409,'发行源版本不属于此分支');
     const identity=job.game_identity,{content_key,...identityInput}=identity??{};
     if(!digest(content_key)||content_key!==job.canonical_identity||content_key!==job.content_key||hash(identityInput)!==content_key||identity.contract!==GAME_PROJECT_CONTRACT||identity.project_id!==p||identity.branch_id!==b||identity.source_revision!==sourceRevision||identity.entry_scene_id!==entry||identity.runtime_source_hash!==job.runtime_source_hash)fail(409,'固定游戏构建身份不完整或已变化');
-    if(job.canonical_web?.policy!==CANONICAL_WEB_POLICY||job.canonical_web.content_key!==content_key||job.web_compatibility?.policy!==WEB_POLICY)fail(422,'构建没有统一游戏 Web 启动记录');
+    const three=identity.web_engine==='three';
+    if(three&&(job.web_engine!=='three'||!manifest.source_files[THREE_ENTRY]||!identity.toolchain?.three))fail(409,'发布的 Three.js 入口与固定源码不一致');
+    if(job.canonical_web?.policy!==(three?THREE_WEB_POLICY:CANONICAL_WEB_POLICY)||job.canonical_web.content_key!==content_key||job.web_compatibility?.policy!==(three?THREE_WEB_POLICY:WEB_POLICY))fail(422,'构建没有统一游戏 Web 启动记录');
     const files=clone(job.web_files??[]).sort((a,b)=>String(a.path).localeCompare(String(b.path))),paths=new Set(files.map(file=>file.path));
-    if(!files.length||files.length>1000||files.some(file=>!entryValid(file))||paths.size!==files.length||['index.html','index.js','index.pck','index.wasm'].some(path=>!paths.has(path)))fail(409,'Web 构建缺少完整固定文件清单');
+    if(!files.length||files.length>1000||files.some(file=>!entryValid(file))||paths.size!==files.length||(three?['index.html','index.js','game-identity.json']:['index.html','index.js','index.pck','index.wasm']).some(path=>!paths.has(path)))fail(409,'Web 构建缺少完整固定文件清单');
     if(files.find(file=>file.path==='index.html').sha256!==job.canonical_web.adapted_html_sha256)fail(409,'Web 入口与统一启动记录不一致');
     const artifact=job.artifacts?.find(artifact=>artifact.target==='web');
     if(!artifact||!entryValid({path:artifact.filename,sha256:artifact.sha256,size:artifact.size}))fail(409,'Web 构建缺少固定下载产物');

@@ -20,6 +20,9 @@ import {snapshotImportedProject,verifyImportedFiles} from './build-import-snapsh
 import {closeNativeEditorContent} from './native-editor-content.mjs';
 import {isPrefabTest,isPrefabPreviewEntry} from './prefab-tests.mjs';
 import {linuxExecutionIdentity} from './linux-execution.mjs';
+import {THREE_WEB_POLICY, buildThreeWeb, threeToolchain} from './three-web-build.mjs';
+import {nativeVisualProjection,readVisualBytes,visualCompilerIdentity} from './three-native-visuals.mjs';
+import {threeSceneProjection,usesThreeWeb} from './three-scene-projection.mjs';
 import {createGodotErrorScanner} from '../../tools/godot-diagnostics.mjs';
 
 const KIND='creator_build';
@@ -55,8 +58,9 @@ export class CreationBuilds {
     mkdirSync(this.directory,{recursive:true});this.queue=[];this.closing=false;this.child=null;
     for(const job of this.store.list(KIND))if(ACTIVE.includes(job.status))this.update(job,{status:'interrupted',stage:'服务已重启，请重新提交',error:'上次后台执行中断，未将未完成文件标为成功',finished_at:Date.now()});
   }
-  targets(){
+  targets({threeWeb=false}={}){
     return TARGETS.map(t=>{
+      if(threeWeb&&t.id==='web')return {id:t.id,label:t.label,description:'导出固定源版本的 Three.js 网页游戏',available:true,web_compatibility_policy:THREE_WEB_POLICY,game_project_contract:GAME_PROJECT_CONTRACT};
       const missing=[];
       if(!existsSync(this.godot))missing.push('Godot 4.6');
       if(!existsSync(join(this.templates,t.template)))missing.push('Godot 4.6 导出模板');
@@ -133,13 +137,25 @@ export class CreationBuilds {
     return job;
   }
   list(user,p,b){
-    this.store.branchFor(user,p,b);
-    return {targets:this.targets(),game_project_contract:GAME_PROJECT_CONTRACT,jobs:this.store.list(KIND).filter(j=>j.project_id===p&&j.branch_id===b).filter(j=>{try{this.forUser(user,j.id);return true;}catch{return false;}}).sort((a,b)=>b.created_at-a.created_at).slice(0,50).map(j=>this.view(j))};
+    const branch=this.store.branchFor(user,p,b);
+    // Reopening the build menu must not deserialize a large unchanged game.
+    this.webTargetCache??=new Map();
+    if(!this.webTargetCache.has(branch.head)){
+      const manifest=this.store.readRevision(branch.head)?.manifest;
+      const threeWeb=manifest?.schema===NATIVE_SCHEMA&&usesThreeWeb(manifest,manifest.entry_scene_id,entry=>this.service.native.archive.read(entry));
+      this.webTargetCache.set(branch.head,threeWeb);
+      if(this.webTargetCache.size>64)this.webTargetCache.delete(this.webTargetCache.keys().next().value);
+    }
+    return {targets:this.targets({threeWeb:this.webTargetCache.get(branch.head)}),game_project_contract:GAME_PROJECT_CONTRACT,jobs:this.store.list(KIND).filter(j=>j.project_id===p&&j.branch_id===b).filter(j=>{try{this.forUser(user,j.id);return true;}catch{return false;}}).sort((a,b)=>b.created_at-a.created_at).slice(0,50).map(j=>this.view(j))};
   }
   policyIdentity(){
     return projectPolicyInventory(this.service.root).sha256;
   }
-  toolchainIdentity(targets){
+  toolchainIdentity(targets,webEngine){
+    if(webEngine==='three'&&targets.includes('web')){
+      const otherTargets=targets.filter(target=>target!=='web');
+      return {...(otherTargets.length?this.toolchainIdentity(otherTargets):{}),three:{...threeToolchain(this.service.root),native_visuals:visualCompilerIdentity(this.service.root,this.godot)}};
+    }
     return {godot:fileIdentity(this.godot),godot_bundle:engineBundleIdentity(this.godot),templates:Object.fromEntries(targets.map(target=>[target,fileIdentity(join(this.templates,TARGETS.find(t=>t.id===target).template))])),...(process.platform==='linux'?{execution:linuxExecutionIdentity()}:{})};
   }
   nativeThumbnailRendererIdentity(){
@@ -154,22 +170,29 @@ export class CreationBuilds {
     if(job.purpose==='native_preview'){
       const snapshot=snapshotNativeEditorRuntime(this.service.root,join(this.directory,job.id,'runtime'));
       job.runtime_sources=snapshot.files;job.runtime_source_hash=snapshot.hash;job.editor_bake_tool_hash=snapshot.bake_tool_hash;
-      job.build_policy_hash=this.policyIdentity();job.toolchain_identity=this.toolchainIdentity(job.targets);
+      job.build_policy_hash=this.policyIdentity();job.toolchain_identity=this.toolchainIdentity(job.targets,job.web_engine);
       job.content_key=hash({contract:NATIVE_EDITOR_CONTRACT,project_id:job.project_id,branch_id:job.branch_id,source_revision:job.source_revision,runtime:snapshot.hash,bake:snapshot.bake_tool_hash,policy:job.build_policy_hash,toolchain:job.toolchain_identity});
       job.canonical_identity=job.content_key;job.editor_contract=NATIVE_EDITOR_CONTRACT;return;
+    }
+    if(independentApplication(job)&&job.targets.includes('web')){
+      const manifest=this.store.readRevision(job.source_revision)?.manifest;
+      if(!job.godot_comparison&&manifest?.schema===NATIVE_SCHEMA&&usesThreeWeb(manifest,job.entry_scene_id,entry=>this.service.native.archive.read(entry))){
+        job.web_engine='three';job.web_compatibility_policy=THREE_WEB_POLICY;
+      }
     }
     const source=join(this.directory,job.id,'project');
     const snapshot=snapshotProjectRuntime(this.service.root,source);
     job.runtime_sources=snapshot.files;job.runtime_source_hash=snapshot.hash;job.game_project_contract=GAME_PROJECT_CONTRACT;
     const storage=gameStorage(this.service,job.project_id,job.branch_id);
     job.storage={policy:storage.policy,namespace:storage.namespace,editor:storage.editor,standalone:storage.standalone,legacy_namespace_preserved:storage.legacy_namespace_preserved,legacy_namespaces:storage.legacy_namespaces};
+    if(job.web_engine==='three')job.storage={...job.storage,three_web_standalone:'three_branch_storage'};
     if(job.purpose==='prefab_test')job.storage={...job.storage,namespace:`prefab-test:${job.project_id}:${job.branch_id}:${job.entry_scene_id}`,standalone:'memory_only_per_run'};
-    job.build_policy_hash=this.policyIdentity();job.toolchain_identity=this.toolchainIdentity(job.targets);
-    const identity={format:1,contract:GAME_PROJECT_CONTRACT,...(job.purpose==='native_shared'?{native_shared_protocol:1,purpose:'native_shared'}:job.purpose==='prefab_test'?{purpose:'prefab_test',prefab_test_protocol:1}:{}),project_id:job.project_id,branch_id:job.branch_id,source_revision:job.source_revision,entry_scene_id:job.entry_scene_id,project_name:job.project_name,storage:job.storage,runtime_source_hash:job.runtime_source_hash,build_policy_hash:job.build_policy_hash,toolchain:job.targets.includes('web')?this.toolchainIdentity(['web']):job.toolchain_identity,web_compatibility_policy:WEB_COMPATIBILITY_POLICY,canonical_web_policy:CANONICAL_WEB_POLICY};
+    job.build_policy_hash=this.policyIdentity();job.toolchain_identity=this.toolchainIdentity(job.targets,job.web_engine);
+    const identity={format:1,contract:GAME_PROJECT_CONTRACT,...(job.purpose==='native_shared'?{native_shared_protocol:1,purpose:'native_shared'}:job.purpose==='prefab_test'?{purpose:'prefab_test',prefab_test_protocol:1}:{}),project_id:job.project_id,branch_id:job.branch_id,source_revision:job.source_revision,entry_scene_id:job.entry_scene_id,project_name:job.project_name,storage:job.storage,runtime_source_hash:job.runtime_source_hash,build_policy_hash:job.build_policy_hash,toolchain:job.targets.includes('web')?this.toolchainIdentity(['web'],job.web_engine):job.toolchain_identity,web_compatibility_policy:job.web_engine==='three'?THREE_WEB_POLICY:WEB_COMPATIBILITY_POLICY,canonical_web_policy:job.web_engine==='three'?THREE_WEB_POLICY:CANONICAL_WEB_POLICY,...(job.web_engine?{web_engine:job.web_engine}:{})};
     job.content_key=hash(identity);job.canonical_identity=job.content_key;job.game_identity={...identity,content_key:job.content_key};
   }
   verifyToolchain(job){
-    if(job.build_policy_hash!==this.policyIdentity()||hash(job.toolchain_identity)!==hash(this.toolchainIdentity(job.targets)))fail(409,'固定工具链或工程生成器已变化，请重新准备运行');
+    if(job.build_policy_hash!==this.policyIdentity()||hash(job.toolchain_identity)!==hash(this.toolchainIdentity(job.targets,job.web_engine)))fail(409,'固定工具链或工程生成器已变化，请重新准备运行');
     if(job.purpose==='native_preview'&&job.editor_bake_tool_hash!==editorToolIdentity(this.service.root))fail(409,'原生编辑器生成器已变化，请重新准备预览');
   }
   authorizeNativePreview(user,p,b,revision){
@@ -208,6 +231,7 @@ export class CreationBuilds {
     const candidates=this.store.list(KIND).filter(candidate=>independentApplication(candidate)&&candidate.project_id===job.project_id&&candidate.branch_id===job.branch_id&&candidate.content_key===job.content_key&&job.targets.every(target=>candidate.targets.includes(target)));
     const matchesToolchain=candidate=>job.targets.every(target=>{
       const wanted=job.toolchain_identity,actual=candidate.toolchain_identity;
+      if(target==='web'&&job.web_engine==='three')return candidate.web_engine==='three'&&hash(wanted.three)===hash(actual.three);
       return wanted?.godot&&actual?.godot&&wanted.templates?.[target]&&actual.templates?.[target]&&hash(wanted.godot)===hash(actual.godot)&&hash(wanted.godot_bundle??null)===hash(actual.godot_bundle??null)&&hash(wanted.templates[target])===hash(actual.templates[target]);
     });
     const complete=candidate=>['completed','partial'].includes(candidate.status)&&job.targets.every(target=>{
@@ -260,6 +284,8 @@ export class CreationBuilds {
     const requested=this.store.readRevision(input.source_revision??branch.head);
     const entry=input.entry_scene_id??requested?.manifest.entry_scene_id;
     const role=this.store.roleFor(user,project),sourceReader=['owner','editor'].includes(role)||role==='viewer'&&requested?.manifest.schema===NATIVE_SCHEMA;
+    if(input.web_engine!=null&&input.web_engine!=='godot')fail(422,'未知的试玩对照引擎');
+    if(input.web_engine==='godot'&&(!sourceReader||requested?.manifest.schema!==NATIVE_SCHEMA))fail(403,'Godot 对照需要当前原生源稿的读取权限');
     const release=sourceReader?null:this.playableGame(user,p,b,entry);
     const sourceRevision=sourceReader?(input.source_revision??branch.head):release.source_revision;
     if(input.source_revision&&sourceRevision!==input.source_revision)fail(403,'此源版本尚未向试玩用户开放');
@@ -271,7 +297,7 @@ export class CreationBuilds {
     // Public readers consume the completed immutable release. Preparing Play
     // must not rebuild it with a newer editor toolchain or publish source edits.
     if(release?.game_build_id){const fixedJob=this.forUser(user,release.game_build_id);remember(fixedJob);return {job:this.view(fixedJob),reused:true};}
-    const job={id:id('build'),kind:'application',purpose:'play',project_id:p,project_name:project.name,branch_id:b,source_revision:sourceRevision,entry_scene_id:entry,targets:['web'],actor_id:user.id,authorized_actor_ids:[user.id],status:'queued',progress:0,stage:'准备同一份游戏工程',created_at:Date.now(),artifacts:[],target_results:[],web_compatibility_policy:WEB_COMPATIBILITY_POLICY};
+    const job={id:id('build'),kind:'application',purpose:'play',...(input.web_engine==='godot'?{godot_comparison:true}:{}),project_id:p,project_name:project.name,branch_id:b,source_revision:sourceRevision,entry_scene_id:entry,targets:['web'],actor_id:user.id,authorized_actor_ids:[user.id],status:'queued',progress:0,stage:'准备同一份游戏工程',created_at:Date.now(),artifacts:[],target_results:[],web_compatibility_policy:WEB_COMPATIBILITY_POLICY};
     try{
       this.pin(job);
       const reusable=this.reusableApplication(job);
@@ -477,6 +503,19 @@ export class CreationBuilds {
     job.artifacts.push(artifact);this.update(job,{});
   }
   async execute(job){
+    try{return await this.executeTargets(job);}
+    catch(error){
+      if(this.closing||job.web_engine!=='three'||!job.artifacts.some(artifact=>artifact.target==='web'))throw error;
+      // A missing desktop toolchain must not invalidate an independently
+      // completed Web ZIP. Revoked access or changed inputs still fail the job.
+      this.executionUser(job);this.verifyToolchain(job);
+      const targets=job.targets.filter(target=>!job.target_results.some(result=>result.target===target));
+      if(!targets.length)throw error;
+      for(const target of targets)job.target_results.push({target,status:'failed',error:this.cleanError(error.message)});
+      this.update(job,{status:'partial',progress:100,stage:'部分平台导出失败',finished_at:Date.now()});
+    }
+  }
+  async executeTargets(job){
     const base=join(this.directory,job.id);this.update(job,{status:'running',progress:5,stage:'收集固定版本和全部资源',started_at:Date.now()});
     const source=await this.measure(job,'assemble',()=>this.assemble(job));
     const native=this.store.get('creator_revision',job.source_revision)?.manifest.schema===NATIVE_SCHEMA;
@@ -488,6 +527,35 @@ export class CreationBuilds {
         if(!lstatSync(path).isFile()||!realpathSync(path).startsWith(realpathSync(source)+'/')||hash(readFileSync(path))!==file.sha256)throw Error('运行验证期间工程输入被修改，拒绝出包');
       }
     };
+    const manifest=this.store.get('creator_revision',job.source_revision).manifest;
+    const godotTargets=job.targets.filter(target=>target!=='web'||job.web_engine!=='three');
+    if(job.web_engine==='three'){
+      this.update(job,{progress:30,stage:'正在打包 Three.js 网页游戏'});
+      try{
+        this.verifyToolchain(job);
+        const out=join(base,'web');
+        const {shell,files}=await this.measure(job,'three_bundle',()=>buildThreeWeb({root:this.service.root,out,job,manifest,archive:this.service.native.archive,projection:async (manifest,id,readFile,emit)=>{
+          if(!manifest.source_files['web/native-visuals.json'])return threeSceneProjection(manifest,id,readFile);
+          const baked=await nativeVisualProjection({root:this.service.root,data:this.service.data,archive:this.service.native.archive,godot:this.godot},manifest,id);
+          if(baked?.asset)baked.projection.binary={url:emit(baked.asset,await readVisualBytes(baked.asset)),sha256:baked.asset.sha256,size:baked.asset.size};
+          return baked?.projection;
+        }}));
+        const output=join(base,'web.zip');
+        await this.measure(job,'archive',()=>this.command(job,'zip',['-q','-r',output,'.'],out),{target:'web'});
+        this.executionUser(job);this.verifyToolchain(job);
+        job.canonical_web=shell;job.web_compatibility={policy:THREE_WEB_POLICY,ipv4_mapped_ipv6:true};
+        await this.artifact(job,'web',output,files);
+        job.target_results.push({target:'web',status:'completed'});
+      }catch(error){
+        if(this.closing)throw error;
+        job.target_results.push({target:'web',status:'failed',error:this.cleanError(error.message)});
+        if(!godotTargets.length)throw error;
+      }
+      if(!godotTargets.length){
+        this.update(job,{status:'completed',progress:100,stage:'Three.js Web 导出完成',finished_at:Date.now()});
+        return;
+      }
+    }
     const version=await this.command(job,this.godot,['--version'],base);
     if(!version.trim().startsWith('4.6.stable.'))throw Error('需要匹配 Godot 4.6 stable 工具链');
     this.update(job,{engine:version.trim(),progress:20,stage:'Godot 正在导入工程'});
@@ -495,13 +563,13 @@ export class CreationBuilds {
     verifyInputs();
     const importedExport=await this.measure(job,'import_snapshot',()=>this.prepareImportedExport(job,source,sourceFiles));
     this.update(job,{progress:35,stage:job.purpose==='native_preview'?'验证原生编辑视口':job.purpose==='native_shared'?'验证共享世界显示端':'验证独立运行入口'});
-    const manifest=this.store.get('creator_revision',job.source_revision).manifest;
     // Play boots the selected canonical entry. A prefab can rely on its parent
     // scene's services/InputMap and is not an independent executable. Keep the
     // full project import and dependency closure above; explicit prefab tests
     // still boot their selected authored test scene.
-    const resources=['play','prefab_test'].includes(job.purpose)?[job.entry_scene_id]:Object.values(manifest.resources).filter(resource=>job.kind==='source'||job.purpose==='native_preview'||!isPrefabTest(resource)).map(resource=>resource.id);
-    for(const [index,resourceId] of (job.purpose==='native_preview'?[job.entry_scene_id]:resources).entries()){
+    const singleEntry=job.kind==='source'||['play','prefab_test','native_preview'].includes(job.purpose);
+    const resources=singleEntry?[job.entry_scene_id]:Object.values(manifest.resources).filter(resource=>!isPrefabTest(resource)).map(resource=>resource.id);
+    for(const [index,resourceId] of resources.entries()){
       this.update(job,{progress:35+Math.floor(index/resources.length*10),stage:`验证资源 ${index+1} / ${resources.length}`});
       // Fixed simulation steps remove real-time waiting; each checked entry
       // still runs all 180 iterations in a fresh save domain.
@@ -525,7 +593,7 @@ export class CreationBuilds {
       }
       await writeFile(join(exportSource,'export_presets.cfg'),this.presets(job,true));
       if(!importedExport)await this.measure(job,'export_import',()=>this.command(job,this.godot,['--headless','--editor','--path',exportSource,'--import'],base,{isolatedProject:exportSource,importing:true}));
-      for(const [index,target] of job.targets.entries()){
+      for(const [index,target] of godotTargets.entries()){
         const spec=TARGETS.find(t=>t.id===target),cap=this.targets().find(t=>t.id===target);
         this.update(job,{progress:45+Math.floor(index/job.targets.length*50),stage:`正在打包 ${spec.label}`});
         try{

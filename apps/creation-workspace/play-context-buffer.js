@@ -102,13 +102,17 @@ export class PlayContextBuffer {
   addFrame(image,{at=this.now(),scope=this.scope}={}){
     if(!this.matches(scope)||image?.source_revision&&image.source_revision!==scope.source_revision||image?.scene_generation!=null&&image.scene_generation!==scope.scene_generation)return false;
     if(typeof image?.data_url!=='string'||image.data_url.length>this.limits.frameBytes*1.4){this.gap('frame_size_limit',{},at);return false;}
-    const observedAt=this.snapshot.at_ms,offset=Number.isFinite(observedAt)?at-observedAt:null;
-    const matching=this.snapshot.scene_generation===scope.scene_generation&&this.snapshot.resource_id===scope.resource_id;
-    const frozen=matching&&image.mode==='inspect'&&this.snapshot.mode==='inspect',matchedTick=matching&&Number.isFinite(image.tick)&&image.tick===this.snapshot.tick;
+    // A frame-specific observation wins over the latest periodic sample, including
+    // when the user inspects a saved playing frame after moving the free camera.
+    const exact=image.frame_snapshot;
+    if(exact&&(exact.scene_generation!==scope.scene_generation||exact.resource_id!==scope.resource_id||!Number.isSafeInteger(image.tick)||exact.tick!==image.tick||!Array.isArray(exact.objects)))return false;
+    const sample=exact??this.snapshot,observedAt=exact?at:sample.at_ms,offset=Number.isFinite(observedAt)?at-observedAt:null;
+    const matching=sample.scene_generation===scope.scene_generation&&sample.resource_id===scope.resource_id;
+    const frozen=matching&&image.mode==='inspect'&&sample.mode==='inspect',matchedTick=matching&&Number.isFinite(image.tick)&&image.tick===sample.tick;
     const synchronized=matching&&offset!==null&&offset>=0&&offset<=500&&(frozen||matchedTick);
     const projection={synchronized,status:synchronized?(frozen?'frozen_observation':'matched_tick'):'unsynchronized',observed_at_ms:observedAt??null,offset_ms:offset,
-      tick:this.snapshot.tick??null,source:'client_engine_projected_bounds',objects:matching&&offset!==null&&offset>=0&&offset<=1500?this.snapshot.objects.slice(0,128).map(projectedRow):[]};
-    const frame={id:`frame-${++this.serial}`,at_ms:at,captured_at:this.wallNow(),resource_id:scope.resource_id,scene_generation:scope.scene_generation,data_url:image.data_url,redacted_input_regions:image.redacted_input_regions??0,projection};
+      tick:sample.tick??null,source:'client_engine_projected_bounds',objects:matching&&offset!==null&&offset>=0&&offset<=1500?sample.objects.filter(row=>row?.visible!==false&&Array.isArray(row?.screen_bounds)).slice(0,128).map(row=>projectedRow(observationValue(row))):[]};
+    const frame={id:`frame-${++this.serial}`,at_ms:at,captured_at:Number.isFinite(image.captured_at)?image.captured_at:this.wallNow(),resource_id:scope.resource_id,scene_generation:scope.scene_generation,data_url:image.data_url,redacted_input_regions:image.redacted_input_regions??0,projection};
     const size=playContextBytes(frame);if(size>this.limits.localBytes){this.gap('frame_size_limit',{},at);return false;}this.frames.push(frame);this.bytes+=size;this.lastFrame=at;this.prune(at);return frame;
   }
   setFocus(value){

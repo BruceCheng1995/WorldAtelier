@@ -9,8 +9,36 @@ const copy = value => value == null ? value : structuredClone(value);
 const display = value => typeof value === 'string' ? value : JSON.stringify(value);
 const short = value => String(value ?? '').slice(0, 8);
 
+// A gameplay observation belongs only to this account and exact source
+// revision. Dynamically spawned subjects may have no authored scene instance.
+export class PrefabGameScenes {
+  constructor(){this.clear();}
+  clear(){this.scope=null;this.seen=new Set();}
+  record(scope,sceneId,objects){
+    if(this.scope!==scope){this.clear();this.scope=scope;}
+    if(!Array.isArray(objects))return;
+    for(const obj of objects.slice(0,256)){
+      const path=obj?.mapping==='spawned_from_prefab'&&obj.source?.prefab_path;
+      if(typeof path!=='string'||path.length>1024)continue;
+      this.seen.add(JSON.stringify([sceneId,path]));
+      if(this.seen.size>1024)this.seen.delete(this.seen.values().next().value);
+    }
+  }
+  choices(scope,manifest,subject){
+    if(!subject)return [];
+    const path=subject.path.startsWith('res://')?subject.path:'res://'+subject.path;
+    return Object.values(manifest.resources).filter(r=>r.kind==='scene'&&r.purpose!=='prefab_test').map(scene=>{
+      const observed=this.scope===scope&&this.seen.has(JSON.stringify([scene.id,path]));
+      const placed=scene.native_nodes?.some(node=>node.scene_file_path===path);
+      const entry=scene.id===manifest.entry_scene_id;
+      return {id:scene.id,name:scene.name,order:observed?0:placed?1:entry?2:3,
+        reason:observed?'本版本试玩中曾生成':placed?'场景中有此实例':entry?'游戏入口':'游戏关卡'};
+    }).sort((a,b)=>a.order-b.order);
+  }
+}
+
 /** Generic native prefab preview, with authored capability test scenes available explicitly. */
-export function mountPrefabLab(host, {getContext = () => ({}), onCreate = () => {}, onRequest = () => {}, onOpenSource = () => {}, onClose = () => {}, onError = () => {}, request} = {}) {
+export function mountPrefabLab(host, {getContext = () => ({}), onCreate = () => {}, onRequest = () => {}, onOpenSource = () => {}, onPlayGame = null, onClose = () => {}, onError = () => {}, request} = {}) {
   let context = null, scenario = null, runtime = null, generation = 0, disposed = false, observed = null, status = 'idle', error = '', receivedAt = null, actionKey = '', record = null;
   const pending = new Map();
   let recognition = null;
@@ -27,7 +55,9 @@ export function mountPrefabLab(host, {getContext = () => ({}), onCreate = () => 
   const sceneToolsButton = button('场景工具', () => openUtility('scene'));
   const recordsButton = button('测试记录', () => openUtility('records'));
   const requestButton = button('提需求', () => openUtility('request'), 'prefab-lab-request-entry');
-  headingTools.append(sceneToolsButton, recordsButton, requestButton);
+  const gameButton=button('用 Web 游戏核对',()=>openUtility('game'),'prefab-lab-text-button');
+  gameButton.hidden=!onPlayGame;
+  headingTools.append(gameButton,sceneToolsButton,recordsButton,requestButton);
   heading.append(closeButton, titleBox, scenePicker, manageButton, headingTools);
   const body = element('div', 'prefab-lab-body');
   const center = element('div', 'prefab-lab-center');
@@ -104,13 +134,23 @@ export function mountPrefabLab(host, {getContext = () => ({}), onCreate = () => 
   const submit = element('button', 'prefab-lab-request', '交给 Agent'); submit.type = 'submit';
   compose.append(element('p', 'prefab-lab-utility-note', '当前对象与这次运行观察会一并带入新的 Agent 会话。'), prompt, suggestions, speechRow, submit);
   compose.addEventListener('submit', event => { event.preventDefault(); if (prompt.value.trim()) { dialog.close(); handoff(prompt.value.trim()); } else prompt.focus(); });
-  const panels = {library, scene:sceneTools, records, request:compose};
+  let gameChoices=null,gameScope='';
+  const gamePanel=element('section','prefab-lab-game'),gameInfo=element('p','prefab-lab-utility-note');
+  const gamePicker=element('select','prefab-lab-scene-picker');gamePicker.setAttribute('aria-label','游戏关卡');
+  const launchGame=button('新页面试玩',async()=>{
+    const fixed={projectId:context.projectId,branchId:context.branchId,actorId:context.actorId,role:context.role,revision:record?.source_revision??context.revision};
+    const target=gamePicker.value;
+    if(!target||fixed.revision!==context.revision)return;
+    dialog.close();try{await onPlayGame(target,gameButton,fixed);}catch(error){onError(error);}
+  });
+  gamePanel.append(gameInfo,gamePicker,launchGame);
+  const panels = {library, scene:sceneTools, records, request:compose, game:gamePanel};
   for (const panel of Object.values(panels)) { panel.hidden = true; dialogBody.append(panel); }
   const timeline = mountAnimationTimeline(timelineHost, {onCommand:command, onRequest:() => { prompt.value = '为当前预制件暴露全部原生动画，提供播放、暂停和姿态定位。'; openUtility('request'); }});
 
   function selectTab(key) { activeTab = key; render(); }
   function openUtility(key) {
-    utility = key; utilityFeedback.textContent = ''; dialogTitle.textContent = {library:'测试场景', scene:'场景工具', records:'测试记录', request:'向 Agent 提需求'}[key];
+    utility = key; utilityFeedback.textContent = ''; dialogTitle.textContent = {library:'测试场景', scene:'场景工具', records:'测试记录', request:'向 Agent 提需求',game:'在实际游戏中核对'}[key];
     for (const [name, panel] of Object.entries(panels)) panel.hidden = name !== key;
     render(); if (!dialog.open) { dialogFocus = document.activeElement; dialog.showModal(); } if (key === 'request') prompt.focus();
   }
@@ -254,7 +294,25 @@ export function mountPrefabLab(host, {getContext = () => ({}), onCreate = () => 
   }
   function render() {
     if (disposed) return;
-    title.textContent = context?.subject?.name || '预制件'; subtitle.textContent = scenario?.automatic && activeTab === 'animation' ? '动画预览' : '能力预览';
+    title.textContent = context?.subject?.name || '预制件';
+    const fixedRevision=record?.source_revision??context?.revision;
+    subtitle.textContent='Godot '+(scenario?.automatic && activeTab==='animation'?'动画预览':'能力预览');
+    subtitle.title='Godot 能力测试场景 · '+(fixedRevision??'');
+    gameButton.disabled=!context?.gameScenes?.length;
+    if(utility==='game'){
+      const choices=context?.gameScenes??[],scope=JSON.stringify([context?.projectId,context?.branchId,context?.revision,context?.subject?.id]);
+      if(gameChoices!==choices||gameScope!==scope){
+        const previous=gameScope===scope?gamePicker.value:'';
+        gamePicker.replaceChildren();
+        for(const choice of choices){const option=element('option','',choice.name+' · '+choice.reason);option.value=choice.id;gamePicker.append(option);}
+        if(choices.some(choice=>choice.id===previous))gamePicker.value=previous;
+        gameChoices=choices;gameScope=scope;
+      }
+      const stale=fixedRevision!==context?.revision;
+      gameInfo.textContent=stale?'分支已有新修订。重置 Godot 预览后，再打开同版本的游戏。':
+        '从源版本 '+short(fixedRevision)+' 的游戏关卡开始。脚本生成的预制件需要在游戏中触发。';
+      launchGame.disabled=stale||!choices.length;
+    }
     root.dataset.status = status; root.dataset.scenarioId = scenario?.id ?? ''; root.dataset.sourceRevision = context?.revision ?? '';
     const labels = {idle:scenario ? '尚未运行' : '选择测试场景', preparing:scenario?.automatic ? '准备预制件预览…' : '准备测试工程…', loading:'启动 Godot…', running:observed ? (observed.current?.name ? (observed.playing ? '动画播放中' : '动画已暂停') : observed.paused ? '已暂停' : '运行中') : '等待能力反馈…', stopped:'已停止', failed:error || '运行失败'};
     runState.textContent = (labels[status] || status) + (record?.source_revision && record.source_revision !== context?.revision ? ' · 内容已更新，重置查看' : ''); runState.title = error || '';
@@ -264,7 +322,7 @@ export function mountPrefabLab(host, {getContext = () => ({}), onCreate = () => 
     runtimeSpeed.disabled = status !== 'running' || !observed; runtimeSpeed.value = String(observed?.speed ?? 1);
     for (const control of [toggle, step, runtimeSpeed]) control.hidden = !!scenario?.automatic && activeTab === 'animation';
     reset.title = scenario?.automatic ? '重新加载目标预制件' : '从测试场景初始状态重新运行';
-    viewportEmpty.hidden = !!runtime; viewportCaption.textContent = runtime && scenario ? '独立预览' : '';
+    viewportEmpty.hidden = !!runtime; viewportCaption.textContent = runtime && scenario ? 'Godot · '+short(fixedRevision) : '';
     viewportEmptyTitle.textContent = status === 'failed' ? '测试场景运行失败' : scenario ? (status === 'stopped' ? '本次测试已停止' : '测试场景已准备好') : '让预制件动起来';
     viewportEmptyDescription.textContent = error || (scenario ? '点击运行，从场景初始状态开始测试。' : '为这个对象创建独立舞台，连接它的动画与主动能力。'); emptyCreate.hidden = !!scenario;
     description.textContent = scenario?.description || '动画、交互和响应都来自实际运行的预制件。'; sourceButton.hidden = !scenario || !!scenario.automatic;

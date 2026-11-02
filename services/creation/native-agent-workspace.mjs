@@ -58,6 +58,7 @@ export function nativeEnvironmentFields(sourceManifest,projectDirectory,{guard}=
 export function nativeWorkspaceContext(manifest){
   if(manifest.schema!==NATIVE_SCHEMA)return {};
   return {source_authority:'native_godot_files',source_schema:NATIVE_SCHEMA,source_identity:manifest.source_identity,
+    ...(manifest.source_files['web/main.js']?{web_entry:{path:'web/main.js',export:'createGame',renderer:'three'}}:{}),
     runtime_entry:{main_scene:'res://atelier_runtime/standalone.tscn',autoload:'GameRuntime',source_main_scene:'project.godot application/run/main_scene'},
     source_files:clone(manifest.source_files),catalog_path:'.atelier/catalog.json',
     coordinates:{handedness:'right',up_axis:'Y',units:'metres',transform:'native Godot Transform3D; use engine property encodings and current property versions'},
@@ -71,8 +72,9 @@ export function nativeSemanticAuthoringGuide(manifest){
   if(manifest.schema!==NATIVE_SCHEMA)return '';
   return `# Native game design descriptions and adjustable properties
 
-The user authors game concepts, objects and systems. Implement the real native
-Godot behavior, then expose useful existing properties with clear names, units,
+The user authors game concepts, objects and systems. Implement gameplay in the versioned Web and Godot targets as requested. For a
+Three.js project or an engine migration read .agents/skills/game-change/references/three-web.md.
+Expose useful existing properties with clear names, units,
 ranges and descriptions. Description is intent, not evidence of implementation.
 Never replace the user's requested behavior to conceal an implementation failure.
 
@@ -115,7 +117,9 @@ export function nativeWorldApiGuide(manifest){
   if(manifest.schema!==NATIVE_SCHEMA)return '';
   return `# WORLD-API: creation-native-1
 
-Native Godot source files are the only game source authority. native_nodes and
+The fixed project source is authoritative for both targets. Web gameplay uses web/main.js
+and Godot uses its native files. Read .agents/skills/game-change/references/three-web.md
+for Three.js authoring and preserving content during migration. native_nodes and
 semantic values returned by world_read are engine-generated indices of those
 files, not another editable scene schema. Scenes/prefabs use real .tscn/.scn references
 and per-property overrides. .atelier/catalog.json is the complete scene/prefab
@@ -175,7 +179,7 @@ Programs may read, copy, generate, replace and delete workspace asset files. Kee
 raw bytes, base64, embedded images and whole Resource objects out of tool arguments,
 tool output and conversation. Return file paths, hashes, sizes, license references
 and only the metadata needed for the current step; inspect selected details on demand.
-Keep .atelier metadata and preserve the fixed baseline. Run through GameRuntime Autoload
+Keep .atelier metadata and preserve the fixed baseline. Godot targets run through GameRuntime Autoload
 and atelier_runtime/standalone.tscn; do not start gameplay from the model-editor host.
 
 Submit that local copy through the already-declared world_apply tool:

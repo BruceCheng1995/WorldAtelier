@@ -12,6 +12,14 @@ const time = value => {
 const contextKey = ({user,project} = {}) => JSON.stringify([user?.id ?? null, project?.id ?? null, project?.permission_version ?? null, project?.role ?? null]);
 
 /** Server-authorized collaboration UI. The host retains sessions, navigation and bootstrap. */
+export function sharedWorkspaceOrigin(here,urls=[]) {
+  const loopback = url => ['localhost','127.0.0.1','[::1]'].includes(url.hostname);
+  if(loopback(here))for(const candidate of urls??[]){
+    try{const url=new URL(candidate);if(['http:','https:'].includes(url.protocol)&&!loopback(url))return url.origin;}catch{}
+  }
+  return here.origin;
+}
+
 export class CollaborationAccess {
   constructor({api, getState, onChanged, toast, userColor} = {}) {
     if (!api?.api || typeof getState !== 'function') throw new Error('协作与权限缺少宿主接口');
@@ -380,12 +388,7 @@ export class CollaborationAccess {
   }
   shareLink() {
     const here = new URL(this.document.location.href);
-    const loopback = url => ['localhost','127.0.0.1','[::1]'].includes(url.hostname);
-    let base = here;
-    if (loopback(here)) for (const candidate of this.data?.share_urls ?? []) {
-      try { const url = new URL(candidate); if (['http:','https:'].includes(url.protocol) && !loopback(url)) { base = url; break; } } catch {}
-    }
-    const url = new URL('/creation-workspace.html',base.origin);
+    const url = new URL('/creation-workspace.html',sharedWorkspaceOrigin(here,this.data?.share_urls));
     const game = `/games/${encodeURIComponent(this.projectId)}`;
     const route = here.hash.slice(1), branch = route.startsWith(game+'/branches/') ? route.slice(game.length+'/branches/'.length).split(/[/?#]/)[0] : '';
     url.hash = game + (branch ? `/branches/${branch}` : '');

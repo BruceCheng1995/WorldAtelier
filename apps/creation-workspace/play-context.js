@@ -32,6 +32,8 @@ export class PlayContextController {
     this.status=el('span','play-context-status');this.status.setAttribute('aria-live','polite');
     this.chip.append(label,this.range,this.details,this.status);composer.append(this.chip);
     this.focusButton=el('button','play-context-focus-button','指出这里');this.focusButton.type='button';this.focusButton.dataset.playContextFocus='';this.focusButton.hidden=true;this.focusButton.title='暂停个人观察，点选或框出想讨论的画面';viewport.append(this.focusButton);
+    this.entryButton=el('button','play-context-focus-button play-context-entry-button','指出暂停前画面');this.entryButton.type='button';this.entryButton.hidden=true;viewport.append(this.entryButton);
+    this.entryButton.onclick=()=>this.focus(null,{inspectionEntry:true}).catch(onError);
     this.checkbox.onchange=()=>{
       this.included=this.checkbox.checked;this.sessionChanged=false;
       if(!this.included){
@@ -60,12 +62,13 @@ export class PlayContextController {
     this.render();
   }
   reset(){
-    this.closeLive();this.generation++;this.runtime=null;this.last={};this.buffer.close();this.prepared=null;this.captureJob=null;this.removalJob=null;this.removalError=null;this.frameJob=null;this.sessionBinding=null;this.sessionChanged=false;this.closeFocus();
+    this.closeLive();this.generation++;this.inspectionEntry=null;this.runtime=null;this.last={};this.buffer.close();this.prepared=null;this.captureJob=null;this.removalJob=null;this.removalError=null;this.frameJob=null;this.sessionBinding=null;this.sessionChanged=false;this.closeFocus();
     for(const pending of this.pendingSnapshots.values())pending.reject(Error('试玩已停止或切换'));this.pendingSnapshots.clear();
   }
   render(){
     const context=this.getContext(),available=!!this.runtime&&!!context?.can_write&&!!context.session_id;
     this.chip.hidden=!available;this.focusButton.hidden=!this.runtime||!context?.can_write||context.mode_pending;
+    this.entryButton.hidden=this.focusButton.hidden||context.mode!=='inspect'||!(this.preview()?.capabilities?.has('inspection-entry-frame-1')||this.inspectionEntry&&samePlayContext(this.inspectionEntry.scope,this.buffer.scope));
     this.checkbox.checked=this.included;this.range.disabled=!this.included||!!this.captureJob||!!this.removalJob;this.details.disabled=!this.buffer.events.length&&!this.buffer.frames.length;
     if(available&&!this.captureJob){const seconds=Math.max(0,Math.min(this.buffer.windowSeconds,(performance.now()-Math.max(this.buffer.started,this.buffer.retainedFrom))/1000));this.status.textContent=this.included?`${Math.round(seconds)} 秒可用 · 仅此窗口${this.buffer.gaps.length?' · 有记录缺口':''}`:this.sessionChanged?'会话已切换；勾选后带入当前试玩':'本条消息不附带试玩记录';}
   }
@@ -91,8 +94,10 @@ export class PlayContextController {
   }
   async compactFrame(image){
     if(typeof image?.data_url!=='string')throw Error('运行窗口没有返回画面');
-    const regions=this.buffer.snapshot.text_input_regions??[];
-    if(this.buffer.snapshot.input_regions_complete===false)throw Error('输入区域扫描不完整，本帧未纳入自动记录');
+    const snapshot=image.frame_snapshot??this.buffer.snapshot;
+    if(image.frame_snapshot&&(snapshot.scene_generation!==image.scene_generation||snapshot.resource_id!==this.buffer.scope?.resource_id||snapshot.tick!==image.tick))throw Error('截图与对象观察不属于同一帧');
+    const regions=snapshot.text_input_regions??[];
+    if(snapshot.input_regions_complete===false||!Array.isArray(regions)||regions.length>64||regions.some(r=>!Array.isArray(r)||r.length!==4||!r.every(Number.isFinite)))throw Error('输入区域扫描不完整，本帧未纳入自动记录');
     if(image.data_url.length<700*1024&&!regions.length)return image;
     const bitmap=await createImageBitmap(await (await fetch(image.data_url)).blob());
     try{
@@ -102,13 +107,25 @@ export class PlayContextController {
       return {...image,data_url:canvas.toDataURL('image/jpeg',.78),width:canvas.width,height:canvas.height,redacted_input_regions:regions.length};
     }finally{bitmap.close();}
   }
-  sampleFrame({force=false,event=false}={}){
+  async rememberInspectionEntry(preview){
+    this.inspectionEntry=null;
+    const scope=this.buffer.scope,generation=this.generation;
+    if(!scope||!this.getContext()?.can_write||document.visibilityState==='hidden')return;
+    try{
+      // Existing Godot builds emit a projection from the same drawn frame
+      // before their capture reply. Keep only the compacted, redacted image.
+      const image=await this.compactFrame(await preview.captureFrame());
+      if(generation===this.generation&&preview===this.preview()&&samePlayContext(scope,this.buffer.scope)&&image.frame_snapshot)
+        this.inspectionEntry={image:{...image,mode:'play'},scope};
+    }catch{if(generation===this.generation)this.buffer.gap('frame_capture_failed');}
+  }
+  sampleFrame({force=false,event=false,inspectionEntry=false}={}){
     this.update();const preview=this.preview(),scope=this.buffer.scope,generation=this.generation,capturedMode=this.getContext()?.mode;
-    if(this.frameJob)return this.frameJob;
+    if(this.frameJob)return force?this.frameJob.catch(()=>null).then(()=>this.sampleFrame({force,event,inspectionEntry})):this.frameJob;
     if(!this.runtime||!scope||!preview?.ready||preview.pending||document.visibilityState==='hidden')return Promise.resolve(null);
     if(!force&&performance.now()-this.buffer.lastFrame<(event?2500:7000))return Promise.resolve(null);
     const work=(async()=>{
-      try{if(performance.now()-(this.buffer.snapshot.at_ms??-Infinity)>1500)await this.requestSnapshot();const image=await this.compactFrame(await preview.captureFrame());if(generation!==this.generation||preview!==this.preview()||!samePlayContext(scope,this.buffer.scope)||capturedMode!==this.getContext()?.mode)return null;return this.buffer.addFrame({...image,mode:capturedMode},{scope});}
+      try{if(performance.now()-(this.buffer.snapshot.at_ms??-Infinity)>1500)await this.requestSnapshot();const image=await this.compactFrame(await preview.captureFrame({inspectionEntry}));if(generation!==this.generation||preview!==this.preview()||!samePlayContext(scope,this.buffer.scope)||capturedMode!==this.getContext()?.mode)return null;return this.buffer.addFrame({...image,mode:capturedMode},{scope});}
       catch(error){if(generation===this.generation)this.buffer.gap('frame_capture_failed');if(force)throw error;return null;}
     })();this.frameJob=work;return work.finally(()=>{if(this.frameJob===work)this.frameJob=null;});
   }
@@ -190,13 +207,15 @@ export class PlayContextController {
     for(const attachment of attachments.filter(a=>a.observation_id===prepared.result.observation_id))await this.request(`sessions/${encodeURIComponent(context.session_id)}/attachments/${encodeURIComponent(attachment.id)}`,{method:'DELETE'});
     const updated=await this.request(`sessions/${encodeURIComponent(context.session_id)}`);if(contextKey(this.getContext())===prepared.binding)this.onSession(updated);if(this.prepared===prepared)this.prepared=null;
   }
-  async focus(frame=null){
+  async focus(frame=null,{inspectionEntry=false}={}){
     this.update();if(!this.runtime)throw Error('先运行游戏，再指出希望讨论的内容');
     const capturedRuntime=this.runtime,capturedScope=structuredClone(this.buffer.scope),capturedBinding=contextKey(this.getContext());
     if(!frame){
       // Capture what the creator was actually looking at BEFORE inspection
       // hides game UI. The overlay is a read-only image, never re-enabled UI.
-      await this.requestSnapshot().catch(()=>{});frame=await this.sampleFrame({force:true});
+      if(inspectionEntry&&this.inspectionEntry&&samePlayContext(this.inspectionEntry.scope,this.buffer.scope)){
+        frame=this.buffer.addFrame(this.inspectionEntry.image,{scope:this.inspectionEntry.scope});
+      }else{await this.requestSnapshot().catch(()=>{});frame=await this.sampleFrame({force:true,inspectionEntry});}
     }
     if(!frame)throw Error('这次没有取得画面，请重试');
     if(this.getContext().mode!=='inspect'){
@@ -206,12 +225,14 @@ export class PlayContextController {
     }
     if(this.runtime!==capturedRuntime||!samePlayContext(capturedScope,this.buffer.scope,{scene:false})||capturedBinding!==contextKey(this.getContext()))throw Error('试玩或会话已经切换，未带入旧画面的聚焦操作');
     this.closeFocus();const preview=this.preview(),host=preview?.host??this.viewport,layer=this.focusLayer=el('div','play-context-focus-layer');layer.tabIndex=0;layer.dataset.playContextFrame=frame.id;
-    const image=el('img');image.src=frame.data_url;image.alt='已固定的试玩画面，点选或框出关注范围';image.draggable=false;
+    const surface=el('div','play-context-focus-surface'),image=el('img');
+    image.onload=()=>surface.style.setProperty('--frame-aspect',String(image.naturalWidth/image.naturalHeight));
+    image.src=frame.data_url;image.alt='已固定的试玩画面，点选或框出关注范围';image.draggable=false;
     const rectangle=el('div','play-context-focus-rect'),hint=el('div','play-context-focus-hint','点一下或拖出范围，空白区域也可以');
-    const cancel=el('button','play-context-focus-cancel','取消');cancel.type='button';cancel.onclick=()=>this.closeFocus();layer.append(image,rectangle,hint,cancel);host.append(layer);layer.focus();
+    const cancel=el('button','play-context-focus-cancel','取消');cancel.type='button';cancel.onclick=()=>this.closeFocus();surface.append(image,rectangle);layer.append(surface,hint,cancel);host.append(layer);layer.focus();
     let start=null;
-    const point=event=>{const box=layer.getBoundingClientRect();return [Math.max(0,Math.min(1,(event.clientX-box.left)/box.width)),Math.max(0,Math.min(1,(event.clientY-box.top)/box.height))];};
-    layer.onpointerdown=event=>{if(event.target.closest('button'))return;event.preventDefault();event.stopPropagation();start=point(event);layer.setPointerCapture(event.pointerId);rectangle.hidden=false;};
+    const point=event=>{const box=surface.getBoundingClientRect();return [Math.max(0,Math.min(1,(event.clientX-box.left)/box.width)),Math.max(0,Math.min(1,(event.clientY-box.top)/box.height))];};
+    layer.onpointerdown=event=>{if(!surface.contains(event.target))return;event.preventDefault();event.stopPropagation();start=point(event);layer.setPointerCapture(event.pointerId);rectangle.hidden=false;};
     layer.onpointermove=event=>{if(!start)return;const end=point(event);Object.assign(rectangle.style,{left:`${Math.min(start[0],end[0])*100}%`,top:`${Math.min(start[1],end[1])*100}%`,width:`${Math.abs(end[0]-start[0])*100}%`,height:`${Math.abs(end[1]-start[1])*100}%`});};
     layer.onpointerup=event=>{
       if(!start)return;event.preventDefault();event.stopPropagation();const end=point(event),rect=[Math.min(start[0],end[0]),Math.min(start[1],end[1]),Math.abs(end[0]-start[0]),Math.abs(end[1]-start[1])],isPoint=rect[2]+rect[3]<.015;
@@ -232,5 +253,5 @@ export class PlayContextController {
     const note=el('p','play-context-note','只记录本游戏画布内的操作。文本输入正文不采集；关键画面不是逐帧录像，输入记录不证明操作成功。发送前保存在当前浏览器内存。');
     const close=el('button','','返回对话');close.type='button';close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(heading,description,frames,list,gaps,note,close);document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
   }
-  dispose(){this.disposed=true;clearInterval(this.timer);this.reset();this.chip.remove();this.focusButton.remove();}
+  dispose(){this.disposed=true;clearInterval(this.timer);this.reset();this.chip.remove();this.focusButton.remove();this.entryButton.remove();}
 }

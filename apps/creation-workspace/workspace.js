@@ -1,3 +1,5 @@
+import {comparisonLink,readComparison,clearComparison} from './game-catalog.js';
+import {ThreeEditorPreview} from './three-editor-preview.js';
 import {createImagePreviews,imageElement,editScreenshot} from './image-attachments.js';
 import {ViewportNavigation} from './viewport-navigation.js';
 import {ViewportAnnotations,copyAnnotationText} from './viewport-annotations.js';
@@ -13,7 +15,7 @@ import {PlayContextController} from './play-context.js';
 import {openSessionContinuation} from './session-continuation.js';
 import {createNativeMergePanel} from './native-merge-panel.js';
 import {createNativeOfflinePanel} from './native-offline-panel.js';
-import {mountPrefabLab} from './prefab-lab.js';
+import {mountPrefabLab,PrefabGameScenes} from './prefab-lab.js';
 import { CreationClient, SceneRevisionCache, WorldModeSequence, validWorldInput, validSessionPacket, previewPeers, userColor, withDevelopmentMetadata, aggregateDevelopment, LocalSelectionOrder, DEFAULT_DISPLAY, displayKey, normalizeDisplay, readDisplay } from './collaboration-client.js';
 import { HierarchyPrefabPanel } from './hierarchy-prefabs.js';
 import { fullAddressKey, lookupResolvedRow, captureTransformTarget, buildWorldTransformCommit, withWorldPosition, localTransformFromEuler } from './hierarchy-editor.js';
@@ -305,6 +307,8 @@ const icon=n=>`<svg class="icon" aria-hidden="true"><use href="#i-${n}"/></svg>`
 const vector=(v,n=0)=>Array.isArray(v)?v.map(Number):[v??n,v??n,v??n];
 const trs=o=>({position:vector(o.position),rotation:vector(o.rotation),scale:vector(o.scale,1)});
 const fmt=n=>Number(n).toFixed(2);
+const godotComparison=new URLSearchParams(location.search).get('engine')==='godot';
+let comparison=null,comparisonCameraPending=false;
 const api=new CreationClient();
 // An already-running older backend may not serve this optional module until
 // its next controlled restart. Keep the existing editing session usable then.
@@ -356,7 +360,8 @@ let conversationRenderedSession=null,conversationHTML='';
 const doc=()=>branch?.manifest.resources[resourceId];
 const key=()=>branch?`${project.id}/${branch.branch_id}/${resourceId}`:null;
 const branchKey=()=>branch?`${project.id}/${branch.branch_id}`:null;
-const canWrite=()=>['owner','editor'].includes(project?.role);
+const canCreateInBranch=()=>['owner','editor'].includes(project?.role);
+const canWrite=()=>!comparison&&canCreateInBranch();
 const editable=()=>!viewportAnnotations?.active&&canWrite()&&mode==='edit'&&!modePending&&!prefabLabSubject&&(!isHierarchy()||hierarchyEnabled);
 const ownSession=s=>s?.owner_user_id===user?.id;
 const isHierarchy=()=>branch?.manifest.schema==='creation-hierarchy-2';
@@ -412,9 +417,10 @@ function syncTopbarScope(){
   if(next!==topbarScope){topbarScope=next;agentRoster.reset(next?{user_id:user.id,project_id:project.id,branch_id:branch.branch_id}:null);if(next)agentRoster.refresh();}
 }
 function renderTopbar(){
+  $('#engineMigration').hidden=!isNative()||!canWrite();
   if(!user)$('#adminEntry').hidden=true;
   collaborationAccess?.setContext({user,project,connected:api.ready});
-  releaseBuilds?.setContext(user&&project&&branch?{user_id:user.id,project_id:project.id,project_name:project.name,branch_id:branch.branch_id,branch_name:branch.name,source_revision:branch.head,schema:branch.manifest?.schema,entry_scene_id:branch.manifest?.entry_scene_id,role:project.role,resources:Object.values(branch.manifest?.resources??{}).map(({id,name,kind})=>({id,name,kind}))}:null);
+  releaseBuilds?.setContext(user&&project&&branch?{user_id:user.id,project_id:project.id,project_name:project.name,branch_id:branch.branch_id,branch_name:branch.name,source_revision:branch.head,schema:branch.manifest?.schema,entry_scene_id:branch.manifest?.entry_scene_id,role:comparison?'viewer':project.role,resources:Object.values(branch.manifest?.resources??{}).map(({id,name,kind})=>({id,name,kind}))}:null);
   const editing=!!branch;for(const id of ['workspaceTools','interfaceMenuButton','branchMenuButton','collaboratorsButton','topbarProject'])$('#'+id).hidden=!editing;
   $('.topbar-brand').hidden=false;
   $('#topbarProject').textContent=project?.name??'';$('#topbarProject').title=project?`返回 ${project.name} 的分支页`:'';$('#topbarProject').href=catalogHref({projectId:project?.id});
@@ -600,7 +606,19 @@ function applyProjectPermissions(value,pid){
   const previous=projects.find(p=>p.id===pid),active=project?.id===pid,wasWritable=active&&canWrite();
   const changed=previous?.role!==value?.role||previous?.permission_version!==value?.permission_version;
   if(value){const next={...previous,...value,branches:value.branches??previous?.branches??[],members:value.members.map(m=>({...m,color:userColor(m)}))};const index=projects.findIndex(p=>p.id===pid);if(index>=0)projects[index]=next;else projects.push(next);if(active)project=next;}
-  else {projects=projects.filter(p=>p.id!==pid);if(active){clearPermissionSession();cancelLocalEdit();leaveWorkspaceForCatalog();project=null;applyCatalogRoute().catch(report);}}
+  else projects=projects.filter(p=>p.id!==pid);
+  // A comparison may still be reading its manifest when access is revoked.
+  // Invalidate that generation as well as any already displayed historical scene.
+  if(active&&(!value||value.role==='player')&&(comparison||readComparison(location.href)?.projectId===pid)){
+    ++branchLoadGeneration;++sceneGeneration;clearPermissionSession();leaveWorkspaceForCatalog();
+    mainPreview?.dispose();objectPreview?.dispose();mainPreview=objectPreview=null;
+    mainDocument=objectDocument=loadedSourceScene=sceneCache=null;resolvedDocuments.clear();
+    localSceneDocuments.clear();prefabThumbnails.clear();
+    const url=clearComparison(new URL(location.href));url.hash=catalogHref(value?{projectId:pid}:{});
+    window.history.replaceState(null,'',url.href);applyCatalogRoute().catch(report);
+    toast('固定源版本的访问权限已结束');return;
+  }
+  if(active&&!value){clearPermissionSession();cancelLocalEdit();leaveWorkspaceForCatalog();project=null;applyCatalogRoute().catch(report);return;}
   if(active&&value&&wasWritable&&!canWrite()){
     clearPermissionSession();cancelLocalEdit();previews.clear();pendingEdits.clear();histories.clear();
     toast('已切换为只读；未提交的聊天草稿保留在当前窗口，试玩可继续。');
@@ -619,7 +637,8 @@ async function refreshPermissions(){
 }
 function writeCatalogRoute(target,{replace=false}={}){
   const hash=catalogHref(target);if(location.hash===hash)return;
-  window.history[replace?'replaceState':'pushState'](null,'',location.pathname+location.search+hash);
+  const url=clearComparison(new URL(location.href));url.hash=hash;
+  window.history[replace?'replaceState':'pushState'](null,'',url.href);
 }
 async function navigateCatalog(target,options={}){
   if(viewportAnnotations?.active){await viewportAnnotations.finish();if(viewportAnnotations.active)return;}
@@ -724,6 +743,7 @@ function restoredEditScene(){
   return branch.manifest.entry_scene_id;
 }
 function rememberEditedScene(){
+  if(comparison)return;
   const storageKey=lastEditedSceneKey();
   if(!storageKey||branch.manifest.resources[resourceId]?.kind!=='scene')return;
   try{localStorage.setItem(storageKey,resourceId);}catch{}
@@ -742,11 +762,15 @@ async function enterBranch(id,{syncRoute=true}={}){
   branch=null;resourceId=null;selectedId=null;sceneCache=null;peers=[];branchPeers=[];development=[];localEdit=null;drag=null;previews.clear();
   $('#branchCards').setAttribute('aria-busy','true');$('#workspaceStatus').textContent='正在读取中央文档…';
   try{
-    const result=await api.api(branchRoute(project.id,id));if(generation!==branchLoadGeneration)return;
-    branch=result;resourceId=restoredEditScene();openResources=[resourceId];await loadHierarchyDocument();if(generation!==branchLoadGeneration)return;rememberEditedScene();selectedId=docObjects().find(o=>o.kind!=='group')?.id??docObjects()[0]?.id??null;
+    const pin=readComparison(location.href);comparison=null;comparisonCameraPending=false;
+    if(pin&&(!pin.valid||pin.projectId!==project.id||pin.branchId!==id))throw Error('对照链接与项目或固定版本不匹配');
+    const result=await api.api(branchRoute(project.id,id)+(pin?'?revision='+encodeURIComponent(pin.revision):''));if(generation!==branchLoadGeneration)return;
+    if(pin&&(result.head!==pin.revision||!Object.hasOwn(result.manifest.resources,pin.resource)))throw Error('无法打开链接指定的固定版本和文档');
+    comparison=pin;comparisonCameraPending=Boolean(pin?.camera);
+    branch=result;resourceId=pin?.resource??restoredEditScene();openResources=[resourceId];await loadHierarchyDocument();if(generation!==branchLoadGeneration)return;rememberEditedScene();selectedId=pin?(docObjects().some(o=>o.id===pin.selected)?pin.selected:null):(docObjects().find(o=>o.kind!=='group')?.id??docObjects()[0]?.id??null);
     selectedSessionId=sessionSelection.get(branchKey())??null;sessionData=null;sessionEvents=[];sessionCursor=0;mode='edit';
     document.body.classList.add('is-editing');$('#landing').hidden=true;$('#workbench').hidden=false;
-    api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:resourceId,known_head:branch.head});
+    api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:resourceId,known_head:branch.head,...(comparison?{comparison_revision:comparison.revision}:{})});
     syncTopbarScope();renderAll();scheduleIssues();await loadSessions();if(generation!==branchLoadGeneration)return;catalog().recordVisit(project.id,branch.branch_id);document.title=`${project.name} / ${branch.branch_id} · 世界工坊`;$('#branchMenuButton').focus();
   }finally{$('#branchCards').removeAttribute('aria-busy');}
 }
@@ -756,11 +780,20 @@ async function openResource(id){
   closePrefabLab(false);
   prefabPlacement?.cancel();
   if(!branch.manifest.resources[id])return;cancelLocalEdit();leaveWorld();clearPresence();resourceId=id;
+  if(comparison){
+    const url=comparisonLink(location.href,{revision:branch.head,resource:id,godot:godotComparison});
+    window.history.replaceState(null,'',url.href);comparison=readComparison(url.href);comparisonCameraPending=false;
+  }
   if(!openResources.includes(id))openResources.push(id);explorerTab='scene';$('#contentSearch').value='';const documentKey=key();await loadHierarchyDocument();if(key()!==documentKey)return;selectedId=docObjects().find(o=>o.kind!=='group')?.id??docObjects()[0]?.id??null;sceneCache=null;previews.clear();
-  rememberEditedScene();api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:id,known_head:branch.head});renderAll();
+  rememberEditedScene();api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:id,known_head:branch.head,...(comparison?{comparison_revision:comparison.revision}:{})});renderAll();
 }
+const prefabGameScenes=new PrefabGameScenes();
+function prefabUsageScope(revision){return JSON.stringify([user?.id,project?.id,branch?.branch_id,revision]);}
 function prefabLabContext(){
-  return {subject:copy(branch?.manifest.resources[prefabLabSubject]),scenarios:Object.values(branch?.manifest.resources??{}).filter(resource=>resource.purpose==='prefab_test'&&resource.subject_id===prefabLabSubject).map(resource=>({...resource,description:resource.design?.description??''})),revision:branch?.head,projectId:project?.id,branchId:branch?.branch_id};
+  const manifest=branch.manifest,subject=manifest.resources[prefabLabSubject];
+  return {subject:copy(subject),scenarios:Object.values(manifest.resources).filter(r=>r.purpose==='prefab_test'&&r.subject_id===prefabLabSubject).map(r=>({...r,description:r.design?.description??''})),
+    gameScenes:prefabGameScenes.choices(prefabUsageScope(branch.head),manifest,subject),revision:branch.head,
+    projectId:project.id,branchId:branch.branch_id,actorId:user.id,role:project.role};
 }
 function closePrefabLab(render=true){
   if(!prefabLabSubject)return;
@@ -775,7 +808,7 @@ async function openPrefabLab(subjectId,scenarioId=null){
   leaveWorld();prefabPlacement?.cancel();
   prefabLabSubject=subjectId;
   let host=$('#prefabLabHost');if(!host){host=document.createElement('div');host.id='prefabLabHost';$('#stage').append(host);}
-  if(!prefabLab)prefabLab=mountPrefabLab(host,{request:(path,options)=>api.api(path,options),getContext:()=>({canWrite:canWrite(),role:project?.role}),onClose:()=>closePrefabLab(),onError:error=>toast(typeof error==='string'?error:error.message),onOpenSource:({scenario})=>openResource(scenario.id).catch(report),onCreate:input=>createPrefabLabScene(input).catch(report),onRequest:input=>requestPrefabLabAgent(input).catch(report)});
+  if(!prefabLab)prefabLab=mountPrefabLab(host,{request:(path,options)=>api.api(path,options),getContext:()=>({canWrite:canWrite(),role:project?.role}),onClose:()=>closePrefabLab(),onPlayGame:(sceneId,trigger,fixed)=>releaseBuilds.playWeb(sceneId,trigger,fixed),onError:error=>toast(typeof error==='string'?error:error.message),onOpenSource:({scenario})=>openResource(scenario.id).catch(report),onCreate:input=>createPrefabLabScene(input).catch(report),onRequest:input=>requestPrefabLabAgent(input).catch(report)});
   document.body.classList.add('prefab-lab-active');host.hidden=false;
   renderExplorer();renderInspector();prefabLab.open({...prefabLabContext(),scenarioId});
 }
@@ -832,6 +865,12 @@ async function renameSemanticInstance(name,model){
 }
 function acceptBranch(next,{refreshInspector=true}={}){
   if(!branch||next.project_id!==project.id||next.branch_id!==branch.branch_id)return;
+  if(comparison){
+    if(Object.entries(branch.doc_sequences??{}).some(([rid,n])=>(next.doc_sequences?.[rid]??0)<n))return;
+    const liveHead=next.live_head??next.head;
+    if(liveHead&&liveHead!==branch.live_head){branch.live_head=liveHead;branch.doc_sequences={...next.doc_sequences};renderHeader();updateViewportSummary();}
+    return;
+  }
   if(Object.entries(branch.doc_sequences??{}).some(([rid,sequence])=>(next.doc_sequences?.[rid]??0)<sequence))return; // Reject a late HTTP ACK older than the WS baseline.
   if(!next.manifest&&(!next.manifest_unchanged||next.head!==branch.head)){api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:resourceId});return;}
   const previous=branch.head;if(previous!==next.head)prefabPlacement?.cancel();
@@ -839,7 +878,7 @@ function acceptBranch(next,{refreshInspector=true}={}){
   if(prefabLabSubject){if(!branch.manifest.resources[prefabLabSubject])closePrefabLab(false);else prefabLab?.refresh(prefabLabContext());}
   const card=project.branches.find(b=>b.branch_id===branch.branch_id);if(card)Object.assign(card,{head:branch.head,doc_sequences:branch.doc_sequences});
   openResources=openResources.filter(id=>branch.manifest.resources[id]);
-  if(!doc()){resourceId=branch.manifest.entry_scene_id;rememberEditedScene();openResources=[resourceId];api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:resourceId,known_head:branch.head});}
+  if(!doc()){resourceId=branch.manifest.entry_scene_id;rememberEditedScene();openResources=[resourceId];api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:resourceId,known_head:branch.head,...(comparison?{comparison_revision:comparison.revision}:{})});}
   if(mode==='edit'&&!isHierarchy()&&!isNative()&&!docObjects().some(o=>o.id===selectedId))selectedId=docObjects()[0]?.id??null;
   if(previous!==branch.head){sceneCache=null;assetIssues=[];scheduleIssues();}
   if(/^(等待中央文档|正在读取中央文档|源稿就绪|3D 已就绪)/.test($('#workspaceStatus').textContent))$('#workspaceStatus').textContent=`源稿就绪 · ${short(branch.head)}`;
@@ -847,13 +886,16 @@ function acceptBranch(next,{refreshInspector=true}={}){
   if(refreshInspector&&!localEdit)renderInspector();
   if((isHierarchy()||isNative())&&!resolvedDocument()){
     const expectedKey=key(),expectedHead=branch.head;
-    loadHierarchyDocument().then(()=>{if(key()!==expectedKey||branch.head!==expectedHead)return;if(mode==='edit'&&!docObjects().some(o=>o.id===selectedId))selectedId=docObjects().find(o=>o.kind!=='group')?.id??docObjects()[0]?.id??null;renderExplorer();renderStage();if(refreshInspector&&!localEdit)renderInspector();}).catch(report);
+    loadHierarchyDocument().then(()=>{if(key()!==expectedKey||branch.head!==expectedHead)return;if(mode==='edit'&&selectedId&&!docObjects().some(o=>o.id===selectedId)){selectedId=null;toast('原选中对象已从此版本移除');}renderExplorer();renderStage();if(refreshInspector&&!localEdit)renderInspector();}).catch(report);
   }
 }
-function renderHeader(){renderTopbar();if(!branch)return;$('#branchTitle').textContent=project.name;$('#branchCode').textContent=branch.branch_id;$('#sourceBadge').textContent=short(branch.head);$('#sourceBadge').title=branch.head;$('#sessionBranch').textContent=branch.branch_id;$('#sourceStatus').textContent=!canWrite()?'只读浏览 · 点击 Play 试玩':mode==='edit'?'中央源稿':'源稿与运行世界分离';}
+function renderHeader(){renderTopbar();if(!branch)return;$('#branchTitle').textContent=project.name;$('#branchCode').textContent=branch.branch_id;$('#sourceBadge').textContent=short(branch.head);$('#sourceBadge').title=branch.head;$('#sessionBranch').textContent=comparison?branch.branch_id+' · 会话在当前分支运行，试玩附件保留对照版本':branch.branch_id;$('#sourceStatus').textContent=comparison?('固定版本对照 · 只读'+(branch.live_head&&branch.live_head!==branch.head?' · 分支有更新':'')):!canWrite()?'只读浏览 · 点击 Play 试玩':mode==='edit'?'中央源稿':'源稿与运行世界分离';}
 function renderAll(){renderHeader();renderExplorer();renderStage();renderInspector();renderSessions();renderComposer();playContext?.update();}
 function selectedSemanticObjects(){
   const scope=viewedDocumentKey(),objects=mode==='edit'?docObjects():mode==='inspect'?frozenScene?.objects??[]:displayedPlayScene()?.objects??[];
+  // During a branch transaction the next resolved index is still in flight.
+  // An empty pending list is not evidence that the selection was deleted.
+  if(mode==='edit'&&(isNative()||isHierarchy())&&!resolvedDocument())return [];
   const valid=new Set(objects.map(o=>o.id));
   if(semanticSelection.key!==scope||!selectedId||!semanticSelection.ids.includes(selectedId))semanticSelection={key:scope,ids:selectedId?[selectedId]:[],primary:selectedId,anchor:selectedId};
   semanticSelection.ids=semanticSelection.ids.filter(id=>valid.has(id));
@@ -935,7 +977,7 @@ function focusExplorerRow(id,{focus=true}={}){
   const box=row.getBoundingClientRect(),panel=host.getBoundingClientRect();
   if(box.top<panel.top)host.scrollTop-=panel.top-box.top;else if(box.bottom>panel.bottom)host.scrollTop+=box.bottom-panel.bottom;
 }
-const prefabThumbnails=new PrefabThumbnails({cacheScope:()=>user?.id,viewerFactory:(scene,host)=>scene.document_schema==='creation-native-1'?new NativeGodotPreview(host,'object',()=>{},(path,options)=>api.api(path,options)):null,loadScene:entry=>api.api(`projects/${encodeURIComponent(entry.projectId)}/branches/${encodeURIComponent(entry.branchId)}/runtime-scene?resource_id=${encodeURIComponent(entry.resourceId)}&revision=${encodeURIComponent(entry.revision)}&thumbnail=1`)});
+const prefabThumbnails=new PrefabThumbnails({cacheScope:()=>user?.id,viewerFactory:(scene,host)=>scene.document_schema==='creation-native-1'?new ThreeEditorPreview(host,'object',()=>{},(path,options)=>api.api(path,options)):null,loadScene:entry=>api.api(`projects/${encodeURIComponent(entry.projectId)}/branches/${encodeURIComponent(entry.branchId)}/runtime-scene?resource_id=${encodeURIComponent(entry.resourceId)}&revision=${encodeURIComponent(entry.revision)}&thumbnail=1${godotComparison?'&renderer=godot':''}`,{timeoutMs:180000})});
 function renderSceneList(scenes){
   const host=$('#sceneList'),scrollTop=host.scrollTop,focused=host.contains(document.activeElement)?document.activeElement.dataset.sceneResource:null;
   $('#sceneCount').textContent=scenes.length;
@@ -1070,7 +1112,7 @@ function ensurePrefabPlacement(){
     if(localEdit||localCommitPending||drag)throw Error('请先完成当前编辑，再拖入预制件');
     if(!preview?.ready||preview.pending||preview.loadedSeq!==preview.seq||preview.sceneContext?.document_id!==ctx.key||preview.sceneContext?.source_revision!==ctx.base)throw Error('请等待当前场景加载完成，再拖入预制件');
     return {ctx,prefabId,name:prefab.name,preview,seq:preview.seq,dragId:uuid(),prefabPath:prefab.path?.startsWith('res://')?prefab.path:'res://'+prefab.path};
-  },preview:(captured,screen)=>captured.preview.prefabDrag({phase:'move',drag_id:captured.dragId,prefab_path:captured.prefabPath,screen}),
+  },preview:(captured,screen)=>captured.preview.prefabDrag({phase:'move',drag_id:captured.dragId,prefab_path:captured.prefabPath,prefab_id:captured.prefabId,screen}),
   clear:captured=>captured.preview.prefabDrag({phase:'clear',drag_id:captured.dragId}),hide:captured=>captured.preview.prefabDrag({phase:'hide',drag_id:captured.dragId}),place:async(captured,screen)=>{
     const {ctx,prefabId,preview,seq}=captured;
     assertCurrentEdit(ctx);
@@ -1137,6 +1179,20 @@ function renderHierarchyInspector(){
   },{regions:['inspector','impact'],readOnly:!editable(),showNodeTransform:false,semanticPresentation:true});
   panel.setContext(scope).then(()=>{if(hierarchyPanel===panel){panel.setReadOnly(!editable());panel.setSelection(targetAddress);}}).catch(report);
 }
+function updateViewportSummary(){
+  const summary=$('#viewportStateSummary');if(!summary)return;
+  let detail=$('#previewModeDetail').textContent;
+  if(!world?.native_shared&&!modePending&&mode==='edit'){
+    const engine=mainPreview?.host?.dataset.editorEngine;
+    detail=project?.role==='player'?'试玩使用已发布的固定版本':(engine==='three'?'Three.js 编辑 · ':engine==='godot'?'Godot 兼容编辑 · ':'')+'独立运行读取当前源版本';
+  }
+  if(mainPreview?.engineLabel&&!world?.native_shared)detail=`${mainPreview.engineLabel} 试玩 · ${detail}`;
+  const routeDetail=mode==='edit'&&!modePending&&project?.role!=='player'?mainPreview?.host?.dataset.editorRouteDetail:'';
+  const routeNote=$('#editorRouteDetail');if(routeNote){routeNote.textContent=routeDetail??'';routeNote.hidden=!routeDetail;}
+  if(routeDetail)detail+=' · '+routeDetail;
+  if(comparison)detail+=' · 固定 '+short(comparison.revision)+(branch?.live_head!==comparison.revision?' · 分支有更新':'');
+  summary.textContent=detail;summary.title=comparison?detail+' · '+comparison.revision:detail;
+}
 function renderStage({syncPreview=true}={}){
   $$('[data-scene-resource]').forEach(button=>button.disabled=mode!=='edit'||modePending);
   if(!doc())return;$('#documentTabs').innerHTML=openResources.map(id=>{const r=branch.manifest.resources[id];return `<button role="tab" class="document-tab" data-doc="${esc(id)}" aria-selected="${id===resourceId}">${icon(r.kind==='scene'?'scene':'component')}${esc(r.name)}<span class="tag dim">${r.kind==='scene'?'场景':'定义'}</span></button>`;}).join('');
@@ -1164,12 +1220,17 @@ function renderStage({syncPreview=true}={}){
   $('#previewModeTitle').textContent=modePending?'正在切换':{edit:'编辑模式',play:'独立试玩',inspect:'暂停观察'}[mode];
   $('#previewModeDetail').textContent=modePending?'正在准备本次试玩，可随时停止并返回编辑':mode==='edit'?'共同编辑场景 · 每个窗口独立试玩':mode==='play'?'本窗口独立的一局 · 重新开始可恢复初始状态':'本局已暂停 · 右键环绕 / Shift + 右键平移 / 右键 + WASD 漫游';
   if(world?.native_shared){$('#modeBadge').textContent=mode==='inspect'?'个人检查':'共享世界';$('#previewModeTitle').textContent=mode==='inspect'?'个人检查':'共享世界';$('#previewModeDetail').textContent=mode==='inspect'?'只冻结本窗口 · 其他玩家继续运行':'与其他玩家游玩同一个世界';}
-  if($('#viewportStateSummary')){const detail=project?.role==='player'&&mode==='edit'?'试玩使用已发布的固定版本':!world?.native_shared&&!modePending&&mode==='edit'?'独立运行读取当前源版本':$('#previewModeDetail').textContent;$('#viewportStateSummary').textContent=detail;$('#viewportStateSummary').title=detail;}
+  updateViewportSummary();
   $('#viewport').classList.toggle('inspect-frame',mode==='inspect');$('#viewport').classList.toggle('play-frame',mode==='play');
   $$('[data-mode]').forEach(b=>{b.classList.toggle('active',!modePending&&b.dataset.mode===mode);b.classList.toggle('inspect-active',b.dataset.mode==='inspect'&&mode==='inspect');b.setAttribute('aria-pressed',!modePending&&b.dataset.mode===mode);b.disabled=b.dataset.mode==='edit'?false:modePending||doc().kind==='prefab'||b.dataset.mode==='inspect'&&mode==='edit';if(b.dataset.mode==='inspect')b.hidden=mode==='edit';});
   $('#restartPlay').hidden=mode==='edit'||world?.native_shared===true;
   $('#sharedWorldButton').hidden=!isNative()||doc().kind!=='scene'||doc().purpose==='prefab_test';$('#sharedWorldButton').disabled=modePending||!!localEdit||!!localCommitPending;$('#restartPlay').disabled=modePending;
   renderInspectionUi();
+  const compare=$('#compareEngine');
+  compare.hidden=!isNative()||project?.role==='player';compare.disabled=mode!=='edit'||modePending||Boolean(localEdit||drag||localCommitPending||viewportAnnotations?.active);
+  $('#copyComparison').hidden=compare.hidden;$('#copyComparison').disabled=compare.disabled;
+  $('#leaveComparison').hidden=!comparison;
+  compare.textContent=godotComparison?'打开默认引擎窗口':'打开 Godot 对照窗口';
   $('#playWebButton').disabled=!releaseBuilds||doc().kind!=='scene'||doc().purpose==='prefab_test'||!!localCommitPending||!!localEdit||!!drag;
   $('#returnLive').hidden=true;$('#returnLive').textContent='继续运行';$('#createAnchor').disabled=!editable();
   $('#previewModeStatus').hidden=!canWrite()&&mode==='edit'&&!modePending;
@@ -1570,15 +1631,15 @@ async function selectSession(id){
   const events=await api.api(`${sessionRoute(id)}/events?view=compact&after=0`);if(generation!==sessionLoadGeneration||scope!==branchKey()||selectedSessionId!==id)return;
   sessionEvents=events.events;sessionCursor=Math.max(0,...sessionEvents.map(e=>e.cursor??0));api.subscribeSession(id,sessionCursor);
   renderComposer();renderInspector();
-  if(ownSession(sessionData)&&canWrite()&&recoveryNeeded())void reconcileRun({quiet:true});
+  if(ownSession(sessionData)&&canCreateInBranch()&&recoveryNeeded())void reconcileRun({quiet:true});
 }
 async function refreshSession(){if(!selectedSessionId)return;const id=selectedSessionId,boundary=branchKey(),owner=user?.id,generation=sessionLoadGeneration,data=await api.api(sessionRoute(id));if(id!==selectedSessionId||branchKey()!==boundary||user?.id!==owner||sessionLoadGeneration!==generation)return;sessionData=reconcileSessionTitle(data,sessionTitleConfirmations.get(data.id));const index=sessions.findIndex(s=>s.id===id);if(index>=0)sessions[index]={...sessions[index],...sessionData};renderSessions();renderComposer();}
 const sessionStartKey=()=>user&&branch?`${user.id}/${branchKey()}`:null;
-function updateNewSessionControls(){const busy=sessionStartGate.pending.has(sessionStartKey());for(const id of ['topbarQuickSession','quickNewSession','topbarNewSession','newSession']){const button=$('#'+id);button.disabled=!canWrite()||busy;button.setAttribute('aria-busy',String(busy));button.title=busy?'正在新建会话…':'新建会话';}}
+function updateNewSessionControls(){const busy=sessionStartGate.pending.has(sessionStartKey());for(const id of ['topbarQuickSession','quickNewSession','topbarNewSession','newSession']){const button=$('#'+id);button.disabled=!canCreateInBranch()||busy;button.setAttribute('aria-busy',String(busy));button.title=busy?'正在新建会话…':'新建会话';}}
 function closeSessionPicker(restore=false){$('#chatSessions').hidden=true;$('#toggleSessions').setAttribute('aria-expanded','false');if(restore)$('#toggleSessions').focus();}
 function openSessionPicker(){if(!branch)return;$('#chatSettings').open=false;$('#chatSessions').hidden=false;$('#toggleSessions').setAttribute('aria-expanded','true');renderSessions();$('#sessionSearch').focus();}
 function newSession({forceNew=false,authoringAction=null}={}){
-  if(!branch||!canWrite())return Promise.resolve();
+  if(!branch||!canCreateInBranch())return Promise.resolve();
   const ctx={user_id:user.id,project_id:project.id,branch_id:branch.branch_id,generation:branchLoadGeneration,navigation:sessionLoadGeneration},startKey=sessionStartKey();
   const current=()=>user?.id===ctx.user_id&&branchKey()===`${ctx.project_id}/${ctx.branch_id}`&&branchLoadGeneration===ctx.generation;
   closeTopbarMenu(false);closeSessionPicker();
@@ -1625,7 +1686,7 @@ function renderSessionRecovery(){
   $('#sessionRecovery').hidden=!ownSession(sessionData)||!(needed||busy||error);
   $('#sessionRecoveryText').textContent=busy?'正在恢复会话状态…':error||'连接中断后需要恢复会话；草稿和历史已保留。';
   $('#recoverSession').textContent=busy?'恢复中…':'恢复会话';
-  $('#recoverSession').disabled=busy||!canWrite();
+  $('#recoverSession').disabled=busy||!canCreateInBranch();
 }
 function runBusy(){return !!pendingSubmission()||!!cleanupBlocked()||['starting','running','cancelling','uncertain'].includes(latestRun()?.status);}
 function runLabel(status,run=null){if(run?.execution_mode==='goal'){const state=run.executor_goal?.status;return state?({active:'目标持续执行中',complete:'目标已完成',blocked:'目标遇到阻碍',paused:'目标已暂停',budget_limited:'目标已达到预算限制',usage_limited:'目标等待额度恢复'}[state]??'目标状态：'+state):'正在建立持续目标';}if(run?.execution_mode==='plan'&&status==='completed')return '设计计划已生成';return {starting:'正在启动',running:'执行中',cancelling:'等待中断确认',uncertain:'结果待核对',completed:'本轮执行结束',failed:'执行失败',interrupted:'已中断'}[status]||status||'尚未运行';}
@@ -1634,7 +1695,7 @@ function renderAgentStatus(){
   const model=sessionData?.model??agentStatus?.default_model??'';
   $('#sessionModel').innerHTML=(agentStatus?.models??[]).map(m=>`<option value="${esc(m.model)}" title="${esc(m.description)}">${esc(m.displayName||m.model)}</option>`).join('');
   if(model&&!agentStatus?.models?.some(m=>m.model===model))$('#sessionModel').insertAdjacentHTML('afterbegin',`<option value="${esc(model)}">${esc(model)} · 已存模型 / 当前目录不可用</option>`);
-  $('#sessionModel').value=model;$('#sessionModel').disabled=!canWrite()||!ownSession(sessionData)||runBusy()||settingsWrites.has(selectedSessionId);
+  $('#sessionModel').value=model;$('#sessionModel').disabled=!canCreateInBranch()||!ownSession(sessionData)||runBusy()||settingsWrites.has(selectedSessionId);
   const options=reasoningOptions(agentStatus?.models?.find(m=>m.model===model)),effort=sessionData?.effort??'';
   $('#sessionEffort').innerHTML='<option value="">默认强度</option>'+options.map(o=>`<option value="${esc(o.value)}" title="${esc(o.description)}">${esc(effortLabel(o.value))} · 思考强度</option>`).join('');
   if(effort&&!options.some(o=>o.value===effort))$('#sessionEffort').insertAdjacentHTML('beforeend',`<option value="${esc(effort)}">${esc(effortLabel(effort))} · 当前不可用</option>`);
@@ -1743,7 +1804,7 @@ function renderConversation(){
   updateChatScroll();
 }
 function renderQuestions(){
-  const host=$('#sessionQuestions'),sid=sessionData?.id,own=ownSession(sessionData)&&canWrite();
+  const host=$('#sessionQuestions'),sid=sessionData?.id,own=ownSession(sessionData)&&canCreateInBranch();
   const requests=pendingApprovals().filter(e=>e.method==='item/tool/requestUserInput');
   const requestByKey=new Map(sessionEvents.filter(e=>e.kind==='approval_request'&&e.method==='item/tool/requestUserInput').map(e=>[e.request_key,e]));
   const replies=new Map(sessionEvents.filter(e=>e.kind==='serverRequestReply'&&requestByKey.has(e.requestKey)&&e.result?.answers).map(e=>[e.requestKey,e]));
@@ -1799,7 +1860,7 @@ async function copyChatText(text,button){
 function updateChatScroll(){const scroller=$('.composer-content');$('#jumpLatest').hidden=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<90;}
 function resizeDraft(){const field=$('#sessionDraft');field.style.height='auto';field.style.height=Math.min(210,Math.max(72,field.scrollHeight))+'px';}
 function updateSendButton(){
-  $('#sendDraft').disabled=!canWrite()||!ownSession(sessionData)||runBusy()||!agentStatus?.ready||(!$('#sessionDraft').value.trim()&&!sessionData?.draft_attachments?.some(a=>a.kind==='image'))||settingsWrites.has(selectedSessionId)||attachmentWrites.has(selectedSessionId)||semanticComposerPending||semanticPreparingDraft;
+  $('#sendDraft').disabled=!canCreateInBranch()||!ownSession(sessionData)||runBusy()||!agentStatus?.ready||(!$('#sessionDraft').value.trim()&&!sessionData?.draft_attachments?.some(a=>a.kind==='image'))||settingsWrites.has(selectedSessionId)||attachmentWrites.has(selectedSessionId)||semanticComposerPending||semanticPreparingDraft;
 }
 // BEGIN SEMANTIC AUTHORING HOST — existing API, source heads and session attachments.
 function semanticModeForSession(session=sessionData){
@@ -1816,7 +1877,7 @@ function semanticComposerContext(){
   const scope=semanticViewScope(),objects=mode==='edit'?docObjects():mode==='inspect'?frozenScene?.objects??[]:displayedPlayScene()?.objects??[];
   return {...scope,key:[user?.id,scope.project_id,scope.branch_id,selectedSessionId,scope.resource_id,mode].join('/'),user_id:user?.id,sessionId:selectedSessionId,
     sessionGeneration:sessionLoadGeneration,objects,selectedObjects:selectedSemanticObjects(),prefabs:Object.values(branch?.manifest.resources??{}).filter(r=>r.kind==='prefab'),
-    mode:semanticModeForSession(),readOnly:!branch||!canWrite()||!ownSession(sessionData)||Boolean(pendingSubmission())||settingsWrites.has(selectedSessionId),
+    mode:semanticModeForSession(),readOnly:!branch||!canCreateInBranch()||!ownSession(sessionData)||Boolean(pendingSubmission())||settingsWrites.has(selectedSessionId),
     viewMode:mode,schema:branch?.manifest.schema,viewKey:viewedDocumentKey(),camera:fixedAnnotationCamera(annotationView,{documentId:viewedDocumentKey(),seq:mainPreview?.seq,mode,revision:scope.revision}),
     inspection:mode==='inspect'&&world?.session_kind!=='local_preview'?copy(inspectionRecord):null,world:world?{world_id:world.world_id,epoch:world.epoch,session_kind:world.session_kind}:null,references:[],
   };
@@ -1999,19 +2060,19 @@ function showKnowledgeItem(item,revision,scope){
   const current=()=>generation===sessionLoadGeneration&&active()&&sid===selectedSessionId&&owner===user?.id&&branchKey()===`${scope.project_id}/${scope.branch_id}`;
   const buttons=[{label:'返回知识列表',action:()=>openKnowledgeBrowser()}];
   if(item.resource_id)buttons.push({label:'打开相关设计',action:()=>{if(branchKey()!==`${scope.project_id}/${scope.branch_id}`)throw new Error('游戏分支已切换');closeModal();return openResource(item.resource_id);}});
-  if(canWrite()&&ownSession(sessionData))buttons.push({label:'加入会话参考',primary:true,action:async()=>{if(!current())throw new Error('游戏分支或会话已切换');await addSemanticReference({kind:'knowledge',item,revision},semanticComposerContext(),'reference');if(!current())return;closeModal();openChat(true);}});
+  if(canCreateInBranch()&&ownSession(sessionData))buttons.push({label:'加入会话参考',primary:true,action:async()=>{if(!current())throw new Error('游戏分支或会话已切换');await addSemanticReference({kind:'knowledge',item,revision},semanticComposerContext(),'reference');if(!current())return;closeModal();openChat(true);}});
   const active=modal(item.title,`<div class="semantic-knowledge-content">${renderMarkdown(item.content||item.description||'暂无补充说明')}</div><p class="semantic-caption">固定于当前浏览版本 · ${esc(short(revision))}</p>`,buttons);
 }
 // END SEMANTIC AUTHORING HOST
 function renderDraftReferences(){
-  const s=sessionData,own=ownSession(s)&&canWrite(),inlineReferences=new Set(referenceIds($('#sessionDraft').value));
+  const s=sessionData,own=ownSession(s)&&canCreateInBranch(),inlineReferences=new Set(referenceIds($('#sessionDraft').value));
   $('#draftAttachments').innerHTML=(s?.draft_attachments??[]).filter(a=>!inlineReferences.has(a.id)).map(a=>referenceChip(a,{remove:own,disabled:Boolean(pendingSubmission()||attachmentWrites.has(s?.id)||!sessionFeatures)})).join('');
   hydrateImageAttachments();
 }
 function renderComposer(){
   updateNewSessionControls();
   renderTopbarAgents();
-  const s=sessionData,own=ownSession(s)&&canWrite(),busy=runBusy();
+  const s=sessionData,own=ownSession(s)&&canCreateInBranch(),busy=runBusy();
   const action=s?.authoring_action,actionContext=$('#propertyActionContext');
   if(actionContext){actionContext.hidden=!action;actionContext.textContent=action?`AI 添加属性 · ${action.name} · 预制件定义`:'';}
   $('#sessionDraft').placeholder=action?'想增加什么可调能力？例如：攻击间隔、每次产出数量…':'描述你想创造的内容…';
@@ -2050,7 +2111,7 @@ async function removeDraftAttachment(sid,attachmentId,button){
   finally{if(attachmentWrites.get(sid)===write)attachmentWrites.delete(sid);if(sid===selectedSessionId)renderComposer();if(button.isConnected)button.disabled=false;}
 }
 async function saveSessionSettings(patch){
-  const sid=selectedSessionId;if(!canWrite()||!ownSession(sessionData))return;
+  const sid=selectedSessionId;if(!canCreateInBranch()||!ownSession(sessionData))return;
   const generation=sessionLoadGeneration,scope=branchKey(),owner=user?.id,current=()=>sid===selectedSessionId&&sessionData?.id===sid&&generation===sessionLoadGeneration&&scope===branchKey()&&user?.id===owner;
   const previous={model:sessionData.model,effort:sessionData.effort??null,access_mode:sessionData.access_mode??'workspace-write',execution_mode:sessionData.execution_mode??'default'};Object.assign(sessionData,patch);
   if(patch.execution_mode)semanticModes.set(sid,patch.execution_mode==='default'?'normal':patch.execution_mode);
@@ -2061,7 +2122,7 @@ async function saveSessionSettings(patch){
   finally{if(settingsWrites.get(sid)===write)settingsWrites.delete(sid);if(sid===selectedSessionId)renderComposer();}
 }
 function flushDraft(){
-  clearTimeout(saveDraftTimer);const id=selectedSessionId,value=draftCache.get(id),owner=user?.id,pid=project?.id;if(!id||value===undefined||!ownSession(sessionData)||!canWrite())return draftWrite.catch(()=>{});
+  clearTimeout(saveDraftTimer);const id=selectedSessionId,value=draftCache.get(id),owner=user?.id,pid=project?.id;if(!id||value===undefined||!ownSession(sessionData)||!canCreateInBranch())return draftWrite.catch(()=>{});
   const op=draftWrite.catch(()=>{}).then(async()=>{if(user?.id!==owner||!['owner','editor'].includes(projects.find(p=>p.id===pid)?.role))return;await api.api(sessionRoute(id),{method:'PATCH',body:{draft:value}});if(id===selectedSessionId&&sessionData){sessionData.draft=value;$('#draftStatus').textContent=cleanupLabel()||'会话草稿已保存';}});
   draftWrite=op;return op;
 }
@@ -2229,7 +2290,7 @@ function ensurePreviews(){
   }
   if(!mainPreview)mainPreview=createMainPreview();
   if(objectPreview&&(objectPreview instanceof NativeGodotPreview)!==native){objectPreview.dispose();objectPreview=null;objectDocument=null;}
-  if(!objectPreview){objectPreview=native?new NativeGodotPreview($('#objectPreview'),'object',()=>{},(route,options)=>api.api(route,options)):new GodotPreview($('#objectPreview'),'object');bindPreviewFrame(objectPreview);}
+  if(!objectPreview){objectPreview=native?new ThreeEditorPreview($('#objectPreview'),'object',()=>{},(route,options)=>api.api(route,options)):new GodotPreview($('#objectPreview'),'object');bindPreviewFrame(objectPreview);}
   applyViewportDisplay();$('#toggleObjectPreview').onclick=()=>{const toggle=$('#toggleObjectPreview'),open=toggle.getAttribute('aria-expanded')!=='true';toggle.setAttribute('aria-expanded',String(open));$('#objectPreviewDock').classList.toggle('is-collapsed',!open);};
   $('#fitObject').onclick=()=>objectPreview.camera('fit');
 }
@@ -2241,7 +2302,7 @@ function bindPreviewFrame(preview){
 }
 function createMainPreview(){
   const callback=message=>{if(mainPreview===preview)onPreviewEvent(message);};
-  const preview=isNative()?new NativeGodotPreview($('#mainPreview'),'main',callback,(route,options)=>api.api(route,options)):new GodotPreview($('#mainPreview'),'main',callback);
+  const preview=isNative()?new ThreeEditorPreview($('#mainPreview'),'main',callback,(route,options)=>api.api(route,options)):new GodotPreview($('#mainPreview'),'main',callback);
   preview.host.dataset.runtimeKind='editor';
   bindPreviewFrame(preview);return preview;
 }
@@ -2333,9 +2394,23 @@ function restoreEditPreview(){
   const playingPreview=mainPreview;
   mainPreview=editorPreview;editorPreview=null;++sceneGeneration;
   playingPreview.dispose();
+  // Runtime inspection owns a separate selection, including after a scene
+  // switch. Rebind the editor's addresses to the current source on return.
+  const held=mainPreview.sceneContext;
+  if(held&&held.document_id===key()){
+    const prior=new Map((loadedSourceScene?.objects??[]).map(row=>[row.id,row]));
+    const current=docObjects();
+    const resolve=id=>{
+      const row=prior.get(id);if(!row)return null;
+      return current.find(candidate=>row.address?candidate.address&&fullAddressKey(candidate.address)===fullAddressKey(row.address):candidate.id===id)?.id??null;
+    };
+    const ids=(held.selected_ids??[held.selected_id]).map(resolve).filter(Boolean);
+    selectedId=resolve(held.selected_id)??ids.at(-1)??null;
+    semanticSelection={key:key(),ids,primary:selectedId,anchor:selectedId};
+  }
   mainPreview.frame.hidden=false;mainPreview.status.hidden=false;
   Object.assign(mainPreview.host.dataset,{runtimeKind:'editor',runtimeBuild:mainPreview.runtimeBuildId??'',loadedDocument:mainPreview.sceneContext?.document_id??'',loadedSeq:String(mainPreview.loadedSeq),meshes:String(mainPreview.lastLoadedEvent?.mesh_count??mainPreview.lastLoadedEvent?.meshes??''),assetHashes:JSON.stringify(mainPreview.lastLoadedEvent?.assets??[])});
-  delete mainPreview.host.dataset.gameBuild;delete mainPreview.host.dataset.sceneGeneration;
+  delete mainPreview.host.dataset.gameBuild;delete mainPreview.host.dataset.gameEngine;delete mainPreview.host.dataset.sceneGeneration;
   // Restore the real camera observation of the still-alive editor, including
   // its preset selector and annotation context, rather than the play camera.
   const camera=mainPreview.lastCameraEvent;
@@ -2347,7 +2422,7 @@ function restoreEditPreview(){
 async function sourceScene(revision=null,targetResource=resourceId){
   const ctx={...context(),resourceId:targetResource};ctx.key=`${ctx.projectId}/${ctx.branchId}/${targetResource}`;if(revision)ctx.base=revision;const cacheKey=`${ctx.key}/${ctx.base}`;
   if(sceneCache?.key===cacheKey)return sceneCache.promise;
-  const promise=api.api(`${branchRoute(ctx.projectId,ctx.branchId)}/runtime-scene?resource_id=${encodeURIComponent(ctx.resourceId)}&revision=${encodeURIComponent(ctx.base)}`).then(scene=>{
+  const promise=api.api(`${branchRoute(ctx.projectId,ctx.branchId)}/runtime-scene?resource_id=${encodeURIComponent(ctx.resourceId)}&revision=${encodeURIComponent(ctx.base)}${godotComparison?'&renderer=godot':''}`,{timeoutMs:180000}).then(scene=>{
     if(scene.scene_revision!==ctx.base||scene.document_id!==ctx.key||scene.source_revision&&scene.source_revision!==ctx.base)throw new Error('源场景固定版本或文档不匹配，请重新读取');
     if(scene.hierarchy_pack&&(scene.hierarchy_pack.source_revision!==ctx.base||typeof scene.hierarchy_pack_canonical!=='string'))throw new Error('层级包缺少匹配的固定源版本或规范校验文本');
     return {...scene,source_revision:ctx.base};
@@ -2407,6 +2482,9 @@ async function syncMainPreview(){
     mainDocument=null;loadedSourceScene=null;mainPreview.frame.hidden=true;mainPreview.status.textContent='点击 Play 运行已发布的试玩版本';return;
   }
   mainPreview.frame.hidden=false;
+  if((isNative()||isHierarchy())&&!resolvedDocument()){
+    await loadHierarchyDocument();if(generation!==sceneGeneration||key()!==documentKey||branch.head!==sourceRevision)return;
+  }
   const scene=withDevelopmentMetadata(await sourceScene(),development);if(generation!==sceneGeneration||key()!==documentKey||branch.head!==sourceRevision||mode!=='edit'||modePending||drag)return;
   if(!scene.hierarchy_pack&&scene.document_schema!=='creation-native-1')scene.objects=scene.objects.map(o=>{
     const preview=[...previews.values()].find(p=>p.object_id===o.id&&p.peer_id!==api.peerId&&p.expires_at>Date.now());
@@ -2515,7 +2593,17 @@ function issueModePhase(packet){
   annotationView=null;
   playControls?.setEnabled(false);
   if(packet.mode==='inspecting')worldScenes.pin(worldState?.scene_revision);
-  modePending=true;mainPreview.world({action:'mode',...packet,world_id:world.world_id,epoch:world.epoch,scene_revision:world.scene_revision});armModeTimeout();
+  modePending=true;
+  const preview=mainPreview,run=world,seq=preview.sceneGeneration;
+  const send=()=>{if(mainPreview===preview&&world===run&&modePending)preview.world({action:'mode',...packet,world_id:run.world_id,epoch:run.epoch,scene_revision:run.scene_revision});};
+  if(packet.mode==='inspecting'&&mode==='play'&&run.session_kind==='local_preview'&&preview.engineLabel==='Godot'&&playContext){
+    playContext.rememberInspectionEntry(preview).then(()=>{
+      if(mainPreview!==preview||world!==run)return;
+      if(seq!==preview.sceneGeneration){suspendWorld('准备暂停时游戏已切换场景，请重新进入试玩');return;}
+      send();
+    });
+  }else send();
+  armModeTimeout();
 }
 function requestWorldMode(target){
   if(target==='play'&&pendingSharedTransfer){joinSharedWorld(pendingSharedTransfer,{transfer:true}).catch(report);return;}
@@ -2631,7 +2719,13 @@ function measureLegacyControlViews(message){
 }
 async function onPreviewEvent(message){
   if(!branch)return;
-  if(mainPreview instanceof GamePlay)playContext?.accept(message);
+  if(mainPreview instanceof GamePlay){
+    playContext?.accept(message);
+    if(message.type==='play_context'&&message.kind==='snapshot'&&!world?.native_shared&&
+       message.source_revision===mainPreview.job?.source_revision&&message.document_id===`${project.id}/${branch.branch_id}/${message.resource_id}`){
+      prefabGameScenes.record(prefabUsageScope(message.source_revision),message.resource_id,message.payload?.objects);
+    }
+  }
   if(message.type==='runtime_error'&&mainPreview instanceof GamePlay){suspendWorld(`游戏运行失败：${message.message}`);return;}
   if(message.type==='shared_ready'){
     if(world?.native_shared&&mainPreview?.nativeShared&&message.world_id===world.world_id&&message.epoch===world.epoch&&message.control_generation===world.control_generation)api.send({...message,type:'world_ready'});return;
@@ -2688,7 +2782,11 @@ async function onPreviewEvent(message){
     if(!candidate)return;if(candidate.address&&(!message.address||fullAddressKey(candidate.address)!==fullAddressKey(message.address)))return;
     if(mode==='edit'&&candidate.address&&message.source_revision!==branch.head)return;if(message.control_layout)controlObservation=copy(message);selectObject(message.id,{fromPreview:true,ids:message.ids});return;
   }
-  if(message.type==='loaded'){viewportAnnotations?.loaded();viewportNavigation.loaded();applyViewportDisplay();mainPreview.editor({tool:editorTool,snap:editorSnap});sendDevelopment();sendPresence();updateEditorControls();return;}
+  if(message.type==='loaded'){
+    if(comparisonCameraPending&&mode==='edit'&&comparison?.resource===resourceId&&comparison.revision===branch.head){
+      comparisonCameraPending=false;mainPreview.camera({bookmark:comparison.camera});
+    }
+    updateViewportSummary();viewportAnnotations?.loaded();viewportNavigation.loaded();applyViewportDisplay();mainPreview.editor({tool:editorTool,snap:editorSnap});sendDevelopment();sendPresence();updateEditorControls();return;}
   if(message.type==='editor_state'){if(['select','move','rotate','scale'].includes(message.tool))editorTool=message.tool;if(typeof message.snap==='boolean')editorSnap=message.snap;updateEditorControls();return;}
   if(message.type==='history'){applyHistory(message.action).catch(report);return;}
   if(message.type==='viewport_performance'){viewportNavigation.accept(message);return;}
@@ -2820,7 +2918,7 @@ api.addEventListener('status',({detail})=>{
   collaborationAccess?.setContext({user,project,connected:detail.state==='connected'});if(detail.state==='connected')refreshPermissions().catch(report);
   $('#connectionStatus').textContent={connecting:'正在连接',connected:'实时已连接',disconnected:'连接断开',error:'连接失败'}[detail.state];
   $('#connectionStatus').dataset.state=detail.state;inbox?.setConnection(detail.state==='connected');diagnostics.setConnection(detail.state==='connected');if(detail.state==='connected')scheduleIssues();
-  if(detail.state==='connected'&&selectedSessionId)void refreshSession().then(()=>{if(ownSession(sessionData)&&canWrite()&&recoveryNeeded())return reconcileRun({quiet:true});}).catch(report);
+  if(detail.state==='connected'&&selectedSessionId)void refreshSession().then(()=>{if(ownSession(sessionData)&&canCreateInBranch()&&recoveryNeeded())return reconcileRun({quiet:true});}).catch(report);
   if(detail.state!=='connected'){
     clearPresence();
     peers=[];branchPeers=[];renderTopbarAgents();previews.clear();cancelLocalEdit();$('#onlineStatus').textContent='在线状态不可用';mainPreview?.presence?.({peers:[],local_peer:null,branch_id:branch?.branch_id,document_id:key()});
@@ -2880,9 +2978,9 @@ $('#renameAccount').onclick=()=>{
   }}]);closeTopbarMenu(false);
 };
 $('#adminEntry').onclick=async()=>{try{await api.api('admin/access',{method:'POST',body:{}});location.assign('/admin');}catch(error){toast(errorText(error));}};
-$('#logout').onclick=async()=>{++catalogNavigation;gameCatalog?.reset();++branchLoadGeneration;clearTopbar();prefabThumbnails.clear();cancelLocalEdit();disposeHierarchyPanel();resolvedDocuments.clear();loadedSourceScene=null;try{await flushDraft();await api.api('auth/logout',{method:'POST',body:{}});}catch(error){toast(errorText(error));}++sessionLoadGeneration;api.selectSessionBoundary();leaveWorld();api.logout();imagePreviews.clear();inbox?.reset(null);diagnostics.setUser(null);assetIssues=[];++issuesGeneration;$('#inboxButton').hidden=true;user=null;project=null;branch=null;sessionData=null;selectedSessionId=null;draftCache.clear();semanticModes.clear();semanticDetails.clear();inspectorSectionState.clear();semanticSelection={key:null,ids:[],primary:null,anchor:null};semanticComposer?.clear();semanticInspector?.destroy();semanticInspector=null;semanticInspectorRoot=null;sessionTitleConfirmations.clear();sessions=[];document.body.classList.remove('is-editing');$('#workbench').hidden=true;$('#landing').hidden=true;$('#authView').hidden=false;$('#logout').hidden=true;$('#accountName').textContent='未登录';$('#accountAvatar').textContent='·';peers=[];renderTopbar();closeChat(false);};
+$('#logout').onclick=async()=>{prefabGameScenes.clear();++catalogNavigation;gameCatalog?.reset();++branchLoadGeneration;clearTopbar();prefabThumbnails.clear();cancelLocalEdit();disposeHierarchyPanel();resolvedDocuments.clear();loadedSourceScene=null;try{await flushDraft();await api.api('auth/logout',{method:'POST',body:{}});}catch(error){toast(errorText(error));}++sessionLoadGeneration;api.selectSessionBoundary();leaveWorld();api.logout();imagePreviews.clear();inbox?.reset(null);diagnostics.setUser(null);assetIssues=[];++issuesGeneration;$('#inboxButton').hidden=true;user=null;project=null;branch=null;sessionData=null;selectedSessionId=null;draftCache.clear();semanticModes.clear();semanticDetails.clear();inspectorSectionState.clear();semanticSelection={key:null,ids:[],primary:null,anchor:null};semanticComposer?.clear();semanticInspector?.destroy();semanticInspector=null;semanticInspectorRoot=null;sessionTitleConfirmations.clear();sessions=[];document.body.classList.remove('is-editing');$('#workbench').hidden=true;$('#landing').hidden=true;$('#authView').hidden=false;$('#logout').hidden=true;$('#accountName').textContent='未登录';$('#accountAvatar').textContent='·';peers=[];renderTopbar();closeChat(false);};
 
-function leaveWorkspaceForCatalog(){++branchLoadGeneration;clearTopbar();prefabThumbnails.clear();flushDraft().catch(report);++sessionLoadGeneration;api.selectSessionBoundary();sessionEvents=[];sessionCursor=0;sessions=[];cancelLocalEdit();leaveWorld();api.unsubscribe();branch=null;sessionData=null;selectedSessionId=null;closeChat(false);document.body.classList.remove('is-editing');$('#workbench').hidden=true;$('#landing').hidden=false;peers=[];renderTopbar();}
+function leaveWorkspaceForCatalog(){comparison=null;comparisonCameraPending=false;++branchLoadGeneration;clearTopbar();prefabThumbnails.clear();flushDraft().catch(report);++sessionLoadGeneration;api.selectSessionBoundary();sessionEvents=[];sessionCursor=0;sessions=[];cancelLocalEdit();leaveWorld();api.unsubscribe();branch=null;sessionData=null;selectedSessionId=null;closeChat(false);document.body.classList.remove('is-editing');$('#workbench').hidden=true;$('#landing').hidden=false;peers=[];renderTopbar();}
 $('#backBranches').onclick=()=>navigateCatalog({projectId:project?.id});
 $$('[data-explorer]').forEach(b=>b.onclick=()=>{explorerTab=b.dataset.explorer;$('#contentSearch').value='';renderExplorer();});
 $$('[data-inspector]').forEach(b=>b.onclick=()=>{inspectorTab=b.dataset.inspector;renderInspector();});
@@ -2890,6 +2988,41 @@ $$('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode).catch(report)
 $('#sharedWorldButton').onclick=()=>openSharedWorld().catch(report);
 $('#restartPlay').onclick=()=>restartPlay().catch(report);
 $('#inspectionUiToggle').onclick=()=>{if(!world||mode!=='inspect'||modePending)return;mainPreview.world({action:'inspection_ui',world_id:world.world_id,epoch:world.epoch,visible:worldState?.inspection_ui_visible!==true});};
+function currentComparisonLink(godot){
+  if(!isNative()||mode!=='edit'||!loadedSourceScene||mainPreview?.pending||localEdit||localCommitPending||drag||
+      mainPreview?.loadedSeq!==mainPreview?.seq||loadedSourceScene.document_id!==key()||loadedSourceScene.source_revision!==branch.head)
+    throw Error('请等待当前修改保存并显示，再固定对照版本');
+  const camera=mainPreview.lastCameraEvent;
+  return comparisonLink(location.href,{revision:branch.head,resource:resourceId,selected:selectedId,camera:camera?.seq===mainPreview.seq&&camera.document_id===key()?camera:null,godot});
+}
+function pinComparison(url){
+  window.history.replaceState(null,'',url.href);comparison=readComparison(url.href);branch.live_head??=branch.head;
+  api.subscribe({project_id:project.id,branch_id:branch.branch_id,resource_id:resourceId,known_head:branch.head,comparison_revision:comparison.revision});
+  syncTopbarScope();renderAll();
+}
+$('#compareEngine').onclick=()=>{
+  try{
+    const source=currentComparisonLink(godotComparison),target=currentComparisonLink(!godotComparison);
+    const popup=window.open(target.href,'_blank');
+    if(!popup)throw Error('浏览器拦截了对照窗口，可复制对照链接打开');
+    popup.opener=null;pinComparison(source);
+  }catch(error){report(error);}
+};
+$('#copyComparison').onclick=async()=>{
+  try{
+    const source=currentComparisonLink(godotComparison),target=currentComparisonLink(!godotComparison);
+    pinComparison(source);
+    const access=await api.api('projects/'+encodeURIComponent(comparison.projectId)+'/collaboration');
+    const {sharedWorkspaceOrigin}=await import('./collaboration-access.js');
+    const shared=new URL(target.pathname+target.search+target.hash,sharedWorkspaceOrigin(target,access.share_urls));
+    if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(shared.href);toast('已复制另一引擎的同版本链接');return;}catch{}}
+    modal('同版本对照链接','<p>协作者登录后可查看同一固定源版本。</p><textarea readonly>'+esc(shared.href)+'</textarea>',[{label:'关闭',action:closeModal}]);
+  }catch(error){report(error);}
+};
+$('#leaveComparison').onclick=()=>{
+  window.history.replaceState(null,'',clearComparison(new URL(location.href)).href);
+  applyCatalogRoute().catch(report);
+};
 $('#playWebButton').onclick=()=>{if(!doc()||doc().kind!=='scene'||localCommitPending||localEdit||drag)return;releaseBuilds?.playWeb(resourceId,$('#playWebButton')).catch(report);};
 $('#createAnchor').onclick=()=>createAnchor().catch(report);
 $('#togglePrefabShelf').onclick=()=>{const toggle=$('#togglePrefabShelf'),open=toggle.getAttribute('aria-expanded')!=='true';toggle.setAttribute('aria-expanded',String(open));$('#prefabShelfList').hidden=!open;};
@@ -2975,7 +3108,7 @@ document.addEventListener('click',e=>{
   if(!canWrite()&&['migrateHierarchy','newBranch','newSession','merge','reconcile','newResource','deleteObject','import','generateModel','generateScene','validate','publish'].includes(button.dataset.action)){collaborationAccess.open({tab:'requests'});return;}
   try{Promise.resolve(actions[button.dataset.action]?.()).catch(report);}catch(error){report(error);}
 });
-$('#designHelp').onclick=()=>modal('当前工作台',`<p>项目、分支文档、成员、会话、固定附件由中央服务器管理。Godot Web 在当前视口渲染和游玩。源稿修改与已验证的运行世界分别保留，只有真实验证和应用回执才能证明交付。</p><p>Codex 使用本机 App Server、真实模型目录和已登录账户。命令、文件改动、工具及失败原样展示；需要审批时等待你的决定。</p>`,[{label:'返回',action:closeModal}]);
+$('#designHelp').onclick=()=>modal('当前工作台',`<p>项目、分支文档、成员、会话、固定附件由中央服务器管理。已迁移的 Web 游戏使用 Three.js 编辑和试玩。兼容场景使用 Godot，也可打开 Godot 对照窗口。源稿修改与已验证的运行世界分别保留，只有真实验证和应用回执才能证明交付。</p><p>Codex 使用本机 App Server、真实模型目录和已登录账户。命令、文件改动、工具及失败原样展示；需要审批时等待你的决定。</p>`,[{label:'返回',action:closeModal}]);
 window.addEventListener('pagehide',()=>{prefabThumbnails.dispose();clearInterval(previewExpiryTimer);clearTimeout(sessionRefreshTimer);disposeHierarchyPanel();api.disconnect();mainPreview?.dispose();editorPreview?.dispose();objectPreview?.dispose();});
 
 for(const [id,menu]of [['branchMenuButton','branchMenu'],['collaboratorsButton','agentsMenu'],['interfaceMenuButton','interfaceMenu'],['accountMenuButton','accountMenu']])$('#'+id).onclick=e=>toggleTopbarMenu(menu,e.currentTarget);
@@ -2985,8 +3118,20 @@ $('#topbarAllBranches').onclick=()=>{closeTopbarMenu(false);navigateCatalog({pro
 $('#topbarBranchSearch').oninput=filterTopbarBranches;
 $$('[data-topbar-action]').forEach(button=>button.onclick=()=>{closeTopbarMenu(false);$(`[data-action="${button.dataset.topbarAction}"]`).click();});
 $('#topbarFocus').onclick=()=>{closeTopbarMenu(false);$('#expandViewport').click();};
+$('#engineMigration').onclick=async()=>{
+  if(!isNative()||!canWrite())return;
+  const scope=branchKey(),revision=branch.head,userId=user.id;
+  const fromWeb=Boolean(branch.manifest.source_files?.['web/main.js']);
+  const direction=fromWeb?'核对当前 Three.js Web 玩法并迁移到 Godot':'把当前 Godot 游戏迁移到 Three.js Web';
+  const created=await newSession({forceNew:true});
+  if(!created||selectedSessionId!==created.id||branchKey()!==scope||user?.id!==userId||branch.head!==revision)return;
+  const draft=$('#sessionDraft');
+  draft.value=`请${direction}。基础分支 ${scope}，源版本 ${revision}。读取 .agents/skills/game-change/references/three-web.md 和当前固定工程。
+列出用户定义的场景、预制件、稳定对象 ID、实例覆盖、公开参数、资源、交互、存档和进度规则。用相同内容实现另一端，所有修改通过同一源事务提交。用相同输入核对两个目标的可观察行为，说明仍有差异的地方。保留已有发行，完成后报告源版本和实测结果。`;
+  draft.dispatchEvent(new Event('input',{bubbles:true}));openChat(true);draft.focus();
+};
 $('#topbarNewSession').onclick=$('#topbarQuickSession').onclick=$('#quickNewSession').onclick=()=>newSession();
-$('#agentsMenuButton').setAttribute('aria-controls','chatDrawer');$('#agentsMenuButton').onclick=()=>{closeTopbarMenu(false);if(!$('#chatDrawer').hidden){closeChat();return;}if(selectedSessionId)openChat(true);else if(canWrite())newSession();else openChat(false);};
+$('#agentsMenuButton').setAttribute('aria-controls','chatDrawer');$('#agentsMenuButton').onclick=()=>{closeTopbarMenu(false);if(!$('#chatDrawer').hidden){closeChat();return;}if(selectedSessionId)openChat(true);else if(canCreateInBranch())newSession();else openChat(false);};
 $('#topbarCurrentSession').onclick=()=>{closeTopbarMenu(false);openChat(true);chatFocus=$('#agentsMenuButton');};
 $('#agentSearch').oninput=renderTopbarAgents;$('#refreshAgents').onclick=()=>agentRoster.refresh();
 document.addEventListener('pointerdown',e=>{if(topbarMenu&&!$('#'+topbarMenu).contains(e.target)&&!topbarTrigger?.contains(e.target))closeTopbarMenu(false);});
@@ -3223,7 +3368,7 @@ $('#nativeMergeHistory').onclick=async()=>{
 };
 playContext=new PlayContextController({
   composer:$('.composer-input'),viewport:$('#viewport'),request:(route,options)=>api.api(route,options),preview:()=>mainPreview instanceof GamePlay?mainPreview:null,
-  getContext:()=>({user_id:user?.id,project_id:project?.id,branch_id:branch?.branch_id,session_id:selectedSessionId,session_generation:sessionLoadGeneration,can_write:canWrite()&&ownSession(sessionData),mode,mode_pending:modePending,session:sessionData}),
+  getContext:()=>({user_id:user?.id,project_id:project?.id,branch_id:branch?.branch_id,session_id:selectedSessionId,session_generation:sessionLoadGeneration,can_write:canCreateInBranch()&&ownSession(sessionData),mode,mode_pending:modePending,session:sessionData}),
   requestInspect:()=>setMode('inspect'),
   onSession:updated=>{if(updated.id===selectedSessionId&&updated.owner_user_id===user?.id&&updated.project_id===project?.id&&updated.branch_id===branch?.branch_id){sessionData=updated;renderComposer();}},onError:report
 });

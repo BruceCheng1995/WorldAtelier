@@ -38,18 +38,20 @@ export class CreationRealtime {
       if(message.type==='ping'){this.send(client,{type:'pong',at:Date.now()});return;}
       if(message.type==='subscribe') {
         const previous=client.scope;
-        const current=this.store.branchFor(client.user,message.project_id,message.branch_id);
-        const manifest=this.store.readRevision(current.head).manifest;
+        const pin=message.comparison_revision??null;
+        const current=pin!==null?this.store.branchView(client.user,message.project_id,message.branch_id,pin):this.store.branchFor(client.user,message.project_id,message.branch_id);
+        const manifest=current.manifest??this.store.readRevision(current.head).manifest;
         if(!manifest.resources[message.resource_id])fail(404,'订阅文档不存在');
         // A document switch within the same fixed source needs a new scoped
         // baseline, not another full copy of every scene and prefab.
-        const branch=message.known_head===current.head?{...current,presentation:presentationOf(current.presentation),manifest_unchanged:true}:this.store.branchView(client.user,message.project_id,message.branch_id);
+        const {manifest:fixedManifest,...metadata}=current;
+        const branch=message.known_head===current.head?{...metadata,presentation:presentationOf(current.presentation),manifest_unchanged:true}:fixedManifest?current:this.store.branchView(client.user,message.project_id,message.branch_id);
         if(!Number.isSafeInteger(message.generation)||message.generation<1)fail(400,'订阅代次无效');
         if(message.generation<=client.generation)fail(409,'订阅代次已过期');client.generation=message.generation;
         // Drop the old control authority synchronously before exposing a new baseline.
         // onWorld starts leave() before its first await; no old-world input can interleave.
         Promise.resolve(this.onWorld?.(client,{type:'world_leave'})).catch(()=>{});
-        this.clearPreview(client);client.scope={project_id:message.project_id,branch_id:message.branch_id,resource_id:message.resource_id,generation:message.generation};client.camera=null;client.selected_id=null;client.selected_address=null;client.selected_objects=[];client.selected_source_revision=null;client.selected_source_identity=null;client.selection_key=null;client.selection_intent=0;client.last_presence=0;
+        this.clearPreview(client);client.scope={project_id:message.project_id,branch_id:message.branch_id,resource_id:message.resource_id,generation:message.generation,...(pin?{comparison_revision:pin}:{})};client.camera=null;client.selected_id=null;client.selected_address=null;client.selected_objects=[];client.selected_source_revision=null;client.selected_source_identity=null;client.selection_key=null;client.selection_intent=0;client.last_presence=0;
         // Same synchronous event-loop turn attaches the subscription and captures baseline.
         this.send(client,this.packet(client,'baseline',{branch,document_sequence:branch.doc_sequences[message.resource_id]??0,peer_id:client.id}));
         this.onSubscribe?.(client);
@@ -78,7 +80,9 @@ export class CreationRealtime {
       }
       if(message.type.startsWith('world_')){await this.onWorld?.(client,message);return;}
       if(!client.scope||message.generation!==client.scope.generation)fail(409,'订阅已切换');
-      const s=client.scope,branch=this.store.branchFor(client.user,s.project_id,s.branch_id);
+      const s=client.scope,live=this.store.branchFor(client.user,s.project_id,s.branch_id);
+      if(s.comparison_revision&&!this.authorized(client))return;
+      const branch=s.comparison_revision?{...live,head:s.comparison_revision}:live;
       if(message.type==='presence'){
         // Camera updates may be coalesced. Selection and mode boundaries must
         // never be dropped: the final clear may be the client's last packet.
@@ -108,6 +112,7 @@ export class CreationRealtime {
         client.mode=['editing','playing','inspecting'].includes(message.mode)?message.mode:'editing';this.presence(s);return;
       }
       if(message.type==='drag_preview') {
+        if(s.comparison_revision)fail(403,'固定版本对照为只读');
         this.store.projectFor(client.user,s.project_id,true);
         if(message.source_revision&&message.source_revision!==branch.head)fail(409,'拖动所属源版本已变化');
         const target=this.resolveTarget(s,branch,message.address,message.object_id);
@@ -168,7 +173,7 @@ export class CreationRealtime {
     const row=rows.find(row=>key?scopedAddressKey(row.address)===key:hierarchyRuntimeId(row.address)===legacyId);
     return row?{id:hierarchyRuntimeId(row.address),address:row.address,version:row.object_version,ancestry_hash:row.ancestry_hash,hierarchy:true}:null;
   }
-  same(a,b){return a&&b&&a.project_id===b.project_id&&a.branch_id===b.branch_id&&a.resource_id===b.resource_id;}
+  same(a,b){return a&&b&&a.project_id===b.project_id&&a.branch_id===b.branch_id&&a.resource_id===b.resource_id&&(a.comparison_revision??null)===(b.comparison_revision??null);}
   userUpdated(user) {
     const projects=this.store.list('creator_project').filter(p=>p.members[user.id]),scopes=new Map();
     for(const client of this.connections.values()){
@@ -180,7 +185,7 @@ export class CreationRealtime {
     for(const preview of this.previews.values())if(preview.actor?.id===user.id)preview.actor=user;
     for(const scope of scopes.values())this.presence(scope);
   }
-  authorized(client,write=false){try{this.store.authenticate(client.token);this.store.projectFor(client.user,client.scope.project_id,write);return true;}catch{client.ws.close(1008,'Authorization changed');return false;}}
+  authorized(client,write=false){try{this.store.authenticate(client.token);const project=this.store.projectFor(client.user,client.scope.project_id,write);if(client.scope.comparison_revision&&!['owner','editor','viewer'].includes(this.store.roleFor(client.user,project)))return false;return true;}catch{client.ws.close(1008,'Authorization changed');return false;}}
   broadcastScope(scope,type,fields) {for(const client of this.connections.values())if(this.same(client.scope,scope)&&this.authorized(client))this.send(client,this.packet(client,type,fields));}
   presence(scope) {
     const peers=[...this.connections.values()].filter(c=>this.same(c.scope,scope)&&this.authorized(c)).map(c=>({id:c.id,...c.user,camera:c.camera,selected_id:c.selected_id,selected_address:c.selected_address,selected_objects:c.selected_objects??[],selected_source_revision:c.selected_source_revision??null,selected_source_identity:c.selected_source_identity??null,selection_intent:c.selection_intent??0,mode:c.mode??'editing',last_seen:c.last_seen,peer_id:c.id}));
@@ -202,6 +207,7 @@ export class CreationRealtime {
       const manifest=result.branch.manifest??this.store.readRevision(result.branch.head).manifest;
       const scopes=new Map();
       for(const client of this.connections.values())if(client.scope?.project_id===projectId&&client.scope.branch_id===branchId){
+        if(client.scope.comparison_revision)continue;
         if(manifest.schema===NATIVE_SCHEMA)this.clearPreview(client);
         const previous=client.selected_objects??(client.selected_id?[{id:client.selected_id,address:client.selected_address}]:[]);
         const objects=previous.flatMap(object=>{
@@ -218,7 +224,11 @@ export class CreationRealtime {
       }
       for(const scope of scopes.values())this.presence(scope);
     }
-    for(const client of this.connections.values())if(client.scope?.project_id===projectId&&client.scope.branch_id===branchId&&this.authorized(client))this.send(client,this.packet(client,'committed',{...result,document_sequence:result.branch.doc_sequences[client.scope.resource_id]??0}));
+    for(const client of this.connections.values()){
+      if(client.scope?.project_id!==projectId||client.scope.branch_id!==branchId||!this.authorized(client))continue;
+      const update=client.scope.comparison_revision?{branch:{project_id:projectId,branch_id:branchId,head:result.branch.head,doc_sequences:result.branch.doc_sequences}}:result;
+      this.send(client,this.packet(client,'committed',{...update,document_sequence:result.branch.doc_sequences[client.scope.resource_id]??0}));
+    }
   }
   sessionEvent(sid,event) {
     for(const client of this.connections.values())if(client.session_id===sid){try{this.store.authenticate(client.token);this.store.sessionFor(client.user,sid);if(!client.sessionReplay)this.send(client,{type:'session_event',session_id:sid,event:client.compactSession?compactSessionEvent(event):event});}catch{client.session_id=null;client.sessionReplay=null;client.ws.close(1008,'Authorization changed');}}

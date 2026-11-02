@@ -52,7 +52,7 @@ description: 承接 World Atelier 现有游戏的新增、调整或修复需求�
 
 ## 5. 验收与交付
 
-执行选定的检查并按结果修复。源码保存后读回实际 revision、目录、引用和属性；若做技术验证，`game_validate` / `workspace_test` 使用已登记的固定 canonical 工程。`workspace_test` 检查固定输入，不能证明尚未提交的本地变更。实际启动统一走 `GameRuntime` + `standalone.tscn`，检查真实场景与代次，不能拿模型预览结果当作游戏通过。
+执行选定的检查并按结果修复。源码保存后读回实际 revision、目录、引用和属性；若做技术验证，`game_validate` / `workspace_test` 使用已登记的固定 canonical 工程。`workspace_test` 检查固定输入，不能证明尚未提交的本地变更。Godot 目标通过 `GameRuntime` + `standalone.tscn` 启动；Three.js 网页游戏从固定源的 `web/main.js` 启动。涉及引擎迁移、网页制作或双目标发行时读取 [Web 与 Godot 双目标](references/three-web.md)。检查真实场景与代次，不能拿模型预览结果当作游戏通过。
 
 Godot 使用 `workspace.json.engine.executable`，默认 headless、Dummy 音频和有限时长。必要的画面检查只用 `--wa-render` 后台模式及脚本输入，读取保存图片；不打开/激活 Godot、不注入桌面输入、不播放声音，渲染不可用时报告缺口，不回退普通窗口。音频导入/触发检查与听感验收分别表述，不把测试静音写入玩家源稿。
 

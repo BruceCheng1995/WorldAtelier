@@ -52,6 +52,9 @@ func _ready() -> void:
 
 func receive(packet: Dictionary) -> void:
 	if packet.get("source")!="world-atelier-workspace" or packet.get("nonce")!=nonce:return
+	if packet.get("type")=="camera" and packet.get("action") is Dictionary and current_command(packet):
+		restore_comparison_camera(packet.action.get("bookmark"))
+		return
 	if packet.get("type")=="prefab_drag":
 		prefab_preview.receive(self,packet)
 		return
@@ -463,6 +466,34 @@ func update_camera() -> void:
 		get_viewport().canvas_transform=Transform2D(Vector2(canvas_zoom,0),Vector2(0,canvas_zoom),get_viewport().get_visible_rect().size*.5-canvas_center*canvas_zoom)
 		update_helpers(false)
 	else:super.update_camera()
+
+func restore_comparison_camera(value: Variant) -> void:
+	if not value is Dictionary:return
+	var point = value.get("target")
+	var eye = value.get("position")
+	if not point is Array or point.size()!=3 or not eye is Array or eye.size()!=3:return
+	for component in point+eye:
+		if not (component is int or component is float) or not is_finite(float(component)) or absf(component)>=1e9:return
+	if canvas_mode:
+		if value.get("dimension")!="2d":return
+		var zoom_value=value.get("zoom")
+		if not (zoom_value is int or zoom_value is float) or not is_finite(float(zoom_value)):return
+		canvas_center=Vector2(point[0],point[1])
+		canvas_zoom=clampf(float(zoom_value),.001,1000)
+	else:
+		if value.get("dimension")!="3d" or value.get("view") not in ["perspective","top","right","front"]:return
+		var center=Vector3(point[0],point[1],point[2])
+		var delta=Vector3(eye[0],eye[1],eye[2])-center
+		if delta.length()<.001:return
+		target=center
+		distance=clampf(delta.length(),.1,15000)
+		yaw=atan2(delta.x,delta.z)
+		pitch=asin(clampf(delta.normalized().y,-1,1))
+		camera_view=value.view
+		camera.projection=Camera3D.PROJECTION_PERSPECTIVE if camera_view=="perspective" else Camera3D.PROJECTION_ORTHOGONAL
+		camera.size=distance*2*tan(deg_to_rad(camera.fov*.5))
+	update_camera()
+	emit_camera()
 
 func emit_camera() -> void:
 	if native_active and canvas_mode:

@@ -8,6 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable} from 'node:stream';
 import {CreationStore} from '../../services/creation/store.mjs';
+import {workspaceNetwork} from '../../services/preview/network.mjs';
 import {CreationService} from '../../services/creation/service.mjs';
 import {CreationAgentRuns} from '../../services/creation/agent-runs.mjs';
 import {nativeObjects} from '../../services/creation/native-reference.mjs';
@@ -42,7 +43,9 @@ function fixture(t){
   const create=(input,user=owner,options)=>createAnnotationDraft(store,user,p,'main',input,options);
   const counts=()=>Object.fromEntries(['creator_session','creator_annotation_batch','creator_run','creator_message','creator_revision'].map(kind=>[kind,store.list(kind).length]));
   const router=async(path,body,user=owner)=>{
-    const service=Object.assign(Object.create(CreationService.prototype),{store,origin:'http://127.0.0.1:48921',observe:fn=>fn()});
+    const unusedRoute={request:()=>false};
+    const service=Object.assign(Object.create(CreationService.prototype),{store,origin:'http://127.0.0.1:48921',
+      runtimeAccess:{network:workspaceNetwork(48921)},nativeClients:unusedRoute,observations:unusedRoute,continuations:unusedRoute,observe:fn=>fn()});
     const req=Readable.from([Buffer.from(JSON.stringify(body))]);Object.assign(req,{url:`/creation-api/${path}`,method:'POST',headers:{host:'127.0.0.1:48921',origin:'http://127.0.0.1:48921',authorization:`Bearer ${store.issueLogin(user).token}`}});
     let status,value;const res={writeHead(code){status=code;},end(text){value=JSON.parse(text);}};
     assert.equal(await service.request(req,res),true);return {status,value};

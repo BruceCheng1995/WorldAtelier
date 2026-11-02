@@ -16,10 +16,11 @@ const wait = (milliseconds, signal) => new Promise((resolve, reject) => {
 
 /** The server resolves the complete program/content/toolchain identity once.
  * Both launch surfaces use this API; a browser never guesses which old ZIP fits. */
-export async function prepareGamePlay({request, projectId, branchId, revision, entrySceneId, requestId=randomUUID(), signal, onProgress=()=>{},purpose='play'}) {
+export async function prepareGamePlay({request, projectId, branchId, revision, entrySceneId, requestId=randomUUID(), signal, onProgress=()=>{},purpose='play',useComparisonView=true}) {
   const route = `projects/${encodeURIComponent(projectId)}/branches/${encodeURIComponent(branchId)}/${purpose==='prefab_test'?'prefab-test-build':'play-build'}`;
   if (signal?.aborted) throw stopped();
-  let {job} = await request(route, {method:'POST', body:{source_revision:revision, entry_scene_id:entrySceneId, request_id:requestId}, signal});
+  const comparison=useComparisonView&&purpose==='play'&&new URLSearchParams(globalThis.location?.search).get('engine')==='godot';
+  let {job} = await request(route, {method:'POST', body:{source_revision:revision, entry_scene_id:entrySceneId, request_id:requestId,...(comparison?{web_engine:'godot'}:{})}, signal});
   const check = value => {
     if(purpose==='prefab_test'&&value?.purpose!=='prefab_test'||purpose!=='prefab_test'&&value?.purpose==='prefab_test')throw Error('构建用途与本次运行不匹配');
     if (!value || value.project_id !== projectId || value.branch_id !== branchId || revision && value.source_revision !== revision || value.entry_scene_id !== entrySceneId || !value.targets?.includes('web') || !/^[a-f0-9]{64}$/.test(value.canonical_identity ?? '')) throw Error('运行工程与本次固定的场景版本不匹配');
@@ -36,7 +37,7 @@ export async function prepareGamePlay({request, projectId, branchId, revision, e
     await wait(1000, signal);
     ({job} = await request(`builds/${encodeURIComponent(jobId)}`, {signal}));
   }
-  if (!job.artifacts?.some(artifact => artifact.target === 'web')) throw Error(job.error?.message || job.error || 'Godot Web 构建未完成，请查看出包记录');
+  if (!job.artifacts?.some(artifact => artifact.target === 'web')) throw Error(job.error?.message || job.error || 'Web 构建未完成，请查看出包记录');
   const access = await request(`builds/${encodeURIComponent(jobId)}/access`, {method:'POST', body:{}, signal});
   if (signal?.aborted) throw stopped();
   const url = validateRuntimeAccess(access,jobId);
@@ -44,16 +45,16 @@ export async function prepareGamePlay({request, projectId, branchId, revision, e
 }
 
 /** A real exported game, with an optional inspection bridge.
- * Scene construction is exclusively owned by the game's Godot startup. */
+ * The fixed game build owns scene construction. */
 export class GamePlay {
   constructor(host, prepare, onEvent=()=>{}) {
     Object.assign(this, {host, onEvent, seq:0, loadedSeq:0, ready:false, disposed:false, nonce:randomUUID(), worldContext:null});
     this.controller = new AbortController();
     this.frame = document.createElement('iframe');
-    this.frame.title = 'Godot 独立游戏'; this.frame.allow = 'fullscreen; autoplay'; this.frame.setAttribute('aria-label', this.frame.title);
+    this.frame.title = '独立游戏'; this.frame.allow = 'fullscreen; autoplay'; this.frame.setAttribute('aria-label', this.frame.title);
     this.frame.referrerPolicy='no-referrer';this.frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-pointer-lock');this.captures=new Map();
     this.status = document.createElement('div'); this.status.className = 'render-status'; this.status.setAttribute('role', 'status');
-    this.status.textContent = '正在准备游戏工程…'; host.append(this.frame, this.status);
+    this.status.textContent = '正在准备游戏工程…'; host.append(this.status);
     this.listener = event => this.receive(event); window.addEventListener('message', this.listener);
     this.runtimeReady = this.load(prepare); this.runtimeReady.catch(()=>{});
   }
@@ -69,9 +70,15 @@ export class GamePlay {
       const checked=validateRuntimeAccess(result.access,result.job.id);this.runtimeOrigin=checked.origin;this.nonce=result.access.launch_nonce;this.runtimeAccess=result.access;
       this.host.dataset.runtimeBuild = this.runtimeBuildId;
       this.host.dataset.runtimeKind = 'game';
+      this.host.dataset.gameEngine = result.job.web_engine==='three'?'three':'godot';
+      this.engineLabel = result.job.web_engine==='three'?'Three.js':'Godot';
+      this.frame.title = this.engineLabel+' 独立游戏';
+      this.frame.setAttribute('aria-label',this.frame.title);
       this.host.dataset.gameBuild = result.job.id;
       const url = new URL(result.url); url.searchParams.set('wa_embedded','1'); url.searchParams.set('launch','editor'); url.searchParams.set('nonce',this.nonce);
-      this.frame.src = url.href; this.status.textContent = '正在启动游戏…';
+      this.frame.src = url.href;
+      this.status.before(this.frame);
+      this.status.textContent = `正在启动 ${this.engineLabel} 游戏…`;
       return result.job;
     } catch (error) {
       if (!this.disposed) { this.status.textContent = error.message; this.diagnostic('runtime_load', error.message); }
@@ -87,10 +94,15 @@ export class GamePlay {
       const capture=this.captures.get(message.request_id);if(!capture)return;
       this.captures.delete(message.request_id);clearTimeout(capture.timer);
       if(message.error||message.canonical_identity!==this.runtimeBuildId||message.seq!==this.commandSeq||capture.seq!==this.seq||capture.generation!==this.sceneGeneration||message.document_id!==capture.context.document_id||message.scene_generation!==capture.generation||message.source_revision!==capture.context.source_revision||typeof message.data_url!=='string'||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(message.data_url)||message.data_url.length>12*1024*1024){capture.reject(Error(message.error||'截图目标已变化或画面无效'));return;}
-      capture.resolve({...message,runtime_build_id:this.runtimeBuildId});return;
+      capture.resolve({...message,...(capture.snapshot?{frame_snapshot:capture.snapshot}:{}),runtime_build_id:this.runtimeBuildId});return;
     }
     if(message.type==='play_context'){
       if(message.canonical_identity!==this.runtimeBuildId||message.source_revision!==this.job?.source_revision||message.scene_generation!==this.sceneGeneration||message.seq!==undefined&&message.seq!==this.commandSeq)return;
+      if(message.kind==='snapshot'&&typeof message.request_id==='string'&&message.request_id.startsWith('capture-')){
+        const capture=this.captures.get(message.request_id.slice(8));
+        if(capture&&capture.generation===this.sceneGeneration&&capture.context===this.sceneContext&&message.document_id===this.sceneContext.document_id)
+          capture.snapshot={...message.payload,tick:message.tick};
+      }
       this.onEvent({...message,seq:this.seq});return;
     }
     if (message.canonical_identity && message.canonical_identity !== this.runtimeBuildId) { this.fail('实际运行工程与固定构建身份不匹配'); return; }
@@ -98,7 +110,7 @@ export class GamePlay {
       if (!message.capabilities?.includes('canonical-game-runtime')) { this.fail('运行工程不支持当前工作台，请重新构建'); return; }
       if (message.source_revision !== this.job?.source_revision || message.runtime_source_hash !== this.job?.runtime_source_hash) { this.fail('游戏启动清单与固定工程不匹配'); return; }
       if(this.ready)return;
-      this.ready = true;
+      this.capabilities=new Set(message.capabilities);this.ready = true;
       if(this.pending)this.armStartupDeadline('scene');
       if (this.startPacket) this.post(this.startPacket); return;
     }
@@ -144,7 +156,7 @@ export class GamePlay {
     clearTimeout(this.pending.timer);this.pending.phase=phase;
     // Boot/download time must not consume the scene's initialization budget.
     // Only the first authenticated ready packet may advance this phase.
-    this.status.textContent=phase==='engine'?'正在启动游戏…':'正在加载游戏场景…';
+    this.status.textContent=phase==='engine'?(this.engineLabel?`正在启动 ${this.engineLabel} 游戏…`:'正在准备游戏工程…'):'正在加载游戏场景…';
     this.pending.timer=setTimeout(()=>this.fail(phase==='engine'?'游戏引擎启动超时，请查看出包记录后重试':'游戏场景加载超时，请查看出包记录后重试'),180000);
   }
   bindScene(scene, sceneGeneration=this.sceneGeneration) {
@@ -162,13 +174,13 @@ export class GamePlay {
     this.post({...identity,...structuredClone(packet),type:'world',seq:this.commandSeq,scene_generation:this.sceneGeneration});
   }
   editor() {} presence() {} development() {} transient() { return false; }
-  captureFrame() {
+  captureFrame({inspectionEntry=false}={}) {
     if(!this.ready||this.pending||this.loadedSeq!==this.seq||this.disposed||!this.sceneContext)return Promise.reject(Error('等待当前游戏画面'));
     const request_id=randomUUID(),context=this.sceneContext,seq=this.seq,generation=this.sceneGeneration;
     return new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{this.captures.delete(request_id);reject(Error('截图超时，请重试'));},5000);
       this.captures.set(request_id,{resolve,reject,timer,context,seq,generation});
-      this.post({type:'capture_frame',request_id,seq:this.commandSeq,document_id:context.document_id,scene_generation:generation});
+      this.post({type:'capture_frame',request_id,seq:this.commandSeq,document_id:context.document_id,scene_generation:generation,...(inspectionEntry?{inspection_entry:true}:{})});
     });
   }
   diagnostic(...args) { return GodotPreview.prototype.diagnostic.apply(this,args); }

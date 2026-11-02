@@ -120,3 +120,14 @@ test('an error during the selected Play entry still prevents export', async t =>
   assert.notEqual(job.status, 'completed');
   assert.equal(f.store.branchFor(f.user, job.project_id, 'main').head, job.source_revision);
 });
+
+test('Godot project ZIP validates the actual entry and includes its dependent prefabs',async t=>{
+  const f=fixture(t),{job}=jobFor(f,undefined);
+  job.kind='source';job.targets=[];
+  const recorder=recordCommands(f);
+  // No ZIP is written by this command recorder. Examine the real choice of
+  // startup inputs before artifact verification rejects the absent file.
+  await assert.rejects(()=>f.builds.execute(job));
+  const checked=recorder.commands.flatMap(call=>call.args.filter(arg=>arg.startsWith('--release-scene=')));
+  assert.deepEqual(checked,['--release-scene='+job.entry_scene_id]);
+});

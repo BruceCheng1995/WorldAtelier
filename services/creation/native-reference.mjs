@@ -11,14 +11,21 @@ export function nativeObjects(manifest,scope){
   return nativeObjectViews(manifest,scope.resource_id,scope);
 }
 
+// Scope IDs are service identifiers. Node and instance identities are opaque
+// native metadata, even when they contain slashes or share a name across mounts.
+export function nativeScopedAddress(address,scope){
+  if(!address||typeof address!=='object'||Array.isArray(address)||['project_id','branch_id','resource_id'].some(key=>address[key]!==scope[key]))fail(409,'对象地址不属于当前场景');
+  if(!identityPart(address.definition_node_id)||!Array.isArray(address.instance_path)||address.instance_path.length>128||address.instance_path.some(id=>!identityPart(id)))fail(422,'原生对象需要完整稳定地址');
+  return {project_id:scope.project_id,branch_id:scope.branch_id,resource_id:scope.resource_id,
+    instance_path:[...address.instance_path],definition_node_id:address.definition_node_id};
+}
+
 /** An explicit address always wins and is never repaired by guessing a legacy
  * ID. ID-only calls support the unique display IDs retained by migration. */
 export function resolveNativeObject(manifest,scope,address,legacyId,objects=null){
   const rows=objects??nativeObjects(manifest,scope);
   if(address!=null){
-    if(!address||typeof address!=='object'||Array.isArray(address)||['project_id','branch_id','resource_id'].some(key=>address[key]!==scope[key]))fail(409,'对象地址不属于当前场景');
-    if(!identityPart(address.definition_node_id)||!Array.isArray(address.instance_path)||address.instance_path.length>128||address.instance_path.some(id=>!identityPart(id)))fail(422,'原生对象需要完整稳定地址');
-    const key=nativeAddressKey(address),row=rows.find(row=>nativeAddressKey(row.address)===key);
+    const key=nativeAddressKey(nativeScopedAddress(address,scope)),row=rows.find(row=>nativeAddressKey(row.address)===key);
     if(legacyId!=null&&row&&legacyId!==row.id)fail(409,'对象 ID 与完整地址不一致');
     return row??null;
   }

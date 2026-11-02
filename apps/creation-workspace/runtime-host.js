@@ -1,4 +1,4 @@
-import {importSaveDomain} from './storage.js';
+import {importSaveDomain,scoreTransferOffer,acceptScoreTransfer,chooseSaveAction} from './storage.js';
 
 const config=JSON.parse(document.querySelector('#runtime-config').textContent);
 const status=document.querySelector('#status'),params=new URLSearchParams(location.search);
@@ -55,12 +55,51 @@ addEventListener('message',async event=>{
   if(embedded)notify(packet);
 });
 if(storageBridge){status.textContent='正在准备存档迁移…';notify({type:'storage_ready',storage:config.storage});}
-else{
-  frame=document.createElement('iframe');frame.id='game';frame.title='Godot 游戏';frame.allow='fullscreen; autoplay';frame.referrerPolicy='no-referrer';frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-pointer-lock');
+else if(embedded||!config.score_bridge||parent!==window)launchGame();
+else void launchWithScore().catch(error=>failure(error.message));
+function launchGame(){
+  if(disposed)return;
+  status.style.cssText='';status.replaceChildren();
+  frame=document.createElement('iframe');frame.id='game';frame.title=config.web_engine==='three'?'Three.js 游戏':'Godot 游戏';frame.allow='fullscreen; autoplay';frame.referrerPolicy='no-referrer';frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-pointer-lock');
   const url=new URL('web/index.html',location.href);
   if(embedded){url.searchParams.set('launch','editor');url.searchParams.set('wa_embedded','1');url.searchParams.set('nonce',nonce);url.searchParams.set('wa_parent_origin',location.origin);}
   frame.src=url.href;document.body.prepend(frame);
   if(!embedded)frame.addEventListener('load',()=>{status.textContent='';},{once:true});
+}
+async function renewAccess(){
+  if(location.origin!==config.runtime_origin||config.parent_origin===location.origin)throw Error('运行来源与授权不匹配');
+  const response=await fetch(new URL('renew',location.href),{method:'POST',credentials:'omit'});
+  if(!response.ok)throw Error('试玩授权已失效，请从工作台重新打开游戏。');
+}
+async function launchWithScore(){
+  const domain=config.score_bridge.domain,lockName='wa-score:'+JSON.stringify([domain.project_id,domain.branch_id,domain.namespace]);
+  const target=config.web_engine==='godot'?'Godot':'Three.js',source=target==='Godot'?'Three.js':'Godot';
+  const choose=(heading,detail,actions)=>chooseSaveAction(status,{heading,detail,actions});
+  async function review(exclusive){
+    await renewAccess();
+    try{
+      const offer=await scoreTransferOffer(config);
+      if(!offer||disposed)return;
+      if(!exclusive)throw Error('请先关闭其他成绩窗口，在支持存档锁的浏览器中重新打开游戏。');
+      const decision=await choose('带入另一端的最高分',`${source} 最高分为 ${offer.source}，此分支的 ${target} 最高分为 ${offer.target}。同步后两端各自保留存档。`,
+        [{label:'带入最高分并打开',value:'apply'},{label:'使用本端存档',value:'keep'}]);
+      if(decision==='apply'&&!disposed){
+        await renewAccess();if(!disposed)await acceptScoreTransfer(config,offer);
+      }
+    }catch(error){
+      if(disposed)return;
+      await choose('当前成绩未同步',error.message,[{label:'使用本端存档',value:'keep'}]);
+    }
+  }
+  if(!navigator.locks){await review(false);await renewAccess();launchGame();return;}
+  await navigator.locks.request(lockName,{ifAvailable:true},lock=>review(!!lock));
+  if(disposed)return;
+  // Multiple independent players can share their normal domain. A conversion
+  // can only take place while no schema-aware game is using the domain.
+  await navigator.locks.request(lockName,{mode:'shared'},async()=>{
+    if(disposed)return;
+    await renewAccess();launchGame();await new Promise(resolve=>addEventListener('pagehide',resolve,{once:true}));
+  });
 }
 const renewal=setInterval(async()=>{
   try{const response=await fetch(new URL('renew',location.href),{method:'POST',credentials:'omit'});if(!response.ok)throw Error('试玩授权已失效；已加载的游戏保留，请从工作台重新打开后继续加载资源。');}

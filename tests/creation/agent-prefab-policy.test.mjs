@@ -1,5 +1,5 @@
 /** Real prompt/context projection and persistent-session plumbing with an explicit
- * FAKE App Server transport and synthetic source-index fixtures. No model, Godot,
+ * FAKE App Server transport, synthetic fixtures and a shipped native index. No model, Godot,
  * listener, production database, or game-source mutation is used in these tests. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,6 +9,13 @@ import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync,realpathSync} fr
 import {tmpdir} from 'node:os';
 import {resolve,join,dirname} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
+import {DefaultProjectBundle} from '../../services/creation/default-projects.mjs';
+import {nativeObjects} from '../../services/creation/native-reference.mjs';
+import {publicTargetResolver,targetFromAttachment} from '../../services/creation/hierarchy-agent.mjs';
+import {CreationRealtime} from '../../services/creation/realtime.mjs';
+import {createAnnotationDraft} from '../../services/creation/viewport-annotations.mjs';
+import {fullAddressKey} from '../../apps/creation-workspace/hierarchy-editor.js';
+import {aggregateDevelopment} from '../../apps/creation-workspace/collaboration-client.js';
 import {CreationStore} from '../../services/creation/store.mjs';
 import {CreationAgentRuns} from '../../services/creation/agent-runs.mjs';
 import {CodexAgent} from '../../services/creation/codex-agent.mjs';
@@ -64,10 +71,10 @@ function sourceFixture(native){
     resources:{scene:{id:'scene',kind:'scene',name:'Fixture native scene',path:'scene.tscn',version:'fixture-scene-v1',native_nodes:[],design:{description:'Projection fixture',exposed_properties:[]}}}};
 }
 
-function fixture(t,schema='creation-native-1'){
+function fixture(t,schema='creation-native-1',manifest=sourceFixture(schema==='creation-native-1')){
   const data=realpathSync(mkdtempSync(join(tmpdir(),'atelier-FAKE-prefab-policy-'))),store=new CreationStore(join(data,'creation.sqlite'));
   const user=store.register({name:'Prefab author '+randomUUID(),password:'isolated-fixture-password'}).user;
-  const made=store.createProject(user,{name:'Prompt projection fixture'},sourceFixture(schema==='creation-native-1')),project=made.project.id;
+  const made=store.createProject(user,{name:'Prompt projection fixture'},manifest),project=made.project.id;
   if(schema==='creation-hierarchy-2')store.apply(user,project,'main',{transaction_id:'fixture-hierarchy',base_revision:made.branch.head,expected_head:made.branch.head,ops:[{type:'migrate_hierarchy'}]});
   const session=store.createSession(user,project,'main',{title:'Persistent fixture session'});
   const service={root,data,origin:'http://FAKE-no-listener.invalid',store,realtime:{development(){}},sessionEvent(sid,event){return store.appendSessionEvent(sid,event);}};
@@ -140,4 +147,67 @@ for(const schema of ['creation-flat-1','creation-hierarchy-2'])test(`${schema} k
   else assert.match(guide,/Never migrate merely to reinterpret an old attachment/);
   assert.match(AGENT_PREFAB_REMINDER,/legacy/i,'the shared reminder must explicitly defer legacy operations to their own guide');
   assert.match(AGENT_PREFAB_REMINDER,/(?:do not|never) migrate|without migrating/i,'structure guidance must not request an implicit schema migration');
+});
+
+
+test('fixed Gray Harbor projectile identity survives attachment, Agent submission and public development projection',async t=>{
+  const bundle=new DefaultProjectBundle(join(root,'content/default-projects'));
+  const game=bundle.catalog.projects.find(item=>item.id==='game-c2218a3e-4307-4da4-8796-b2ad554d696a');
+  const manifest=bundle.snapshot(game.branches.find(branch=>branch.id==='main'));
+  const f=fixture(t,manifest.schema,manifest);
+  const scope={project_id:f.project,branch_id:'main',resource_id:'prefab-projectile-grenade_shell'};
+  const head=f.store.get('creator_branch',f.project+':main').head;
+  const visual=nativeObjects(manifest,scope).find(row=>row.native_path==='Visual');
+  assert.equal(visual.address.definition_node_id,'prefab-projectile-grenade_shell/Visual');
+  const attachment=f.store.attach(f.user,f.session.id,{...scope,revision:head,address:visual.address,expected_version:visual.version});
+  const draft=createAnnotationDraft(f.store,f.user,f.project,'main',{batch_id:'batch-native-id',annotations:[{
+    resource_id:scope.resource_id,revision:head,kind:'object',dimension:'3d',position:visual.position,
+    object_ids:[visual.id],note:'Private test note'
+  }]},{sessionId:f.session.id});
+  assert.equal(draft.draft_attachments.find(a=>a.kind==='viewport_annotation').members[0].document_schema,undefined);
+  const packets=[],socket=new EventEmitter();
+  Object.assign(socket,{readyState:1,send:value=>packets.push(JSON.parse(value)),close(){this.readyState=3;this.emit('close');}});
+  const realtime=new CreationRealtime({server:new EventEmitter(),store:f.store});
+  f.service.realtime=realtime;realtime.onSubscribe=client=>f.manager.publicState(client.scope.project_id,client.scope.branch_id);
+  t.after(()=>realtime.close());realtime.connect(socket,'http://FAKE-no-listener.invalid');
+  const receive=packet=>socket.emit('message',Buffer.from(JSON.stringify(packet)));
+  receive({type:'auth',token:f.store.issueLogin(f.user).token});
+  receive({type:'subscribe',...scope,generation:1,known_head:head});
+  // The external executor and socket transport are test doubles. Subscription,
+  // target publication, the SQLite run and the workbench grouping are real.
+  const sent=await f.send('Inspect the projectile.');
+  const run=f.store.get('creator_run',sent.run.id);
+  const targets=run.targets.filter(target=>target.address);
+  assert.equal(targets.length,2);
+  for(const target of targets){
+    assert.deepEqual(target.address,visual.address);assert.equal(target.source_revision,head);
+    assert.equal(target.object_version,attachment.object_version);
+  }
+  const published=packets.find(packet=>packet.type==='development'&&packet.states.some(state=>state.id===visual.id));
+  assert.ok(published,'active target was published to the subscriber');assert.equal(published.generation,1);
+  const states=published.states;
+  const groups=aggregateDevelopment(states,scope);
+  const matches=groups.filter(g=>g.address&&fullAddressKey(g.address)===fullAddressKey(visual.address));
+  assert.equal(matches.length,1);assert.equal(matches[0].runs[0].run_id,run.id);
+  assert.doesNotMatch(JSON.stringify(states),/Private test note/);
+
+  const resolve=publicTargetResolver(manifest,scope);
+  assert.equal(resolve(targets[0]).contentFingerprint,visual.version);
+  for(const field of ['project_id','branch_id','resource_id']){
+    assert.equal(resolve({...targets[0],address:{...visual.address,[field]:'other'}}),null);
+  }
+  assert.equal(resolve({...targets[0],resource_id:'other'}),null);
+  const sceneScope={...scope,resource_id:manifest.entry_scene_id};
+  const nested=nativeObjects(manifest,sceneScope).filter(o=>o.address.definition_node_id==='prefab-obstacle-gravestone/Base');
+  assert.ok(nested.length>=2);
+  const sceneResolver=publicTargetResolver(manifest,sceneScope);
+  assert.notEqual(fullAddressKey(nested[0].address),fullAddressKey(nested[1].address));
+  for(const row of nested.slice(0,2)){
+    assert.equal(sceneResolver({address:row.address}).runtimeId,row.id);
+    assert.equal(resolve({address:row.address}),null);
+  }
+  for(const legacy of ['creation-flat-1','creation-hierarchy-2']){
+    assert.throws(()=>targetFromAttachment(attachment,scope,legacy),/定义节点/);
+  }
+  assert.throws(()=>targetFromAttachment({...attachment,address:{...visual.address,instance_path:Array(129).fill('x')}},scope),/完整稳定地址/);
 });

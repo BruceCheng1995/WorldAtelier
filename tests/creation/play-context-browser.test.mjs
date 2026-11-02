@@ -58,11 +58,16 @@ document.querySelector('#continue').onclick=()=>openSessionContinuation({session
     await page.goto(origin);await page.waitForFunction(()=>window.controller?.runtime);assert.equal(f.store.list('creator_play_observation').length,0,'unsent local buffer is not uploaded');
     console.log('PLAY_CONTEXT_UI ready');
     assert.equal(await page.locator('[data-play-context-range]').inputValue(),'60');
-    await page.locator('[data-play-context-focus]').click();const layer=page.locator('.play-context-focus-layer');await layer.waitFor({state:'visible'});const box=await layer.boundingBox();
+    await page.locator('[data-play-context-focus]').click();const layer=page.locator('.play-context-focus-layer');await layer.waitFor({state:'visible'});
+    await page.locator('#viewport').evaluate(el=>el.style.height='700px');
+    const image=layer.locator('img');await image.waitFor({state:'visible'});const box=await image.boundingBox();
+    assert.equal(box.height,500);assert.equal(box.y-(await layer.boundingBox()).y,100);
+    await page.mouse.click(box.x+100,box.y-30);assert.equal(await layer.isVisible(),true,'letterbox clicks do not select a point');
     await page.mouse.move(box.x+box.width*.7,box.y+box.height*.1);await page.mouse.down();await page.mouse.move(box.x+box.width*.9,box.y+box.height*.25,{steps:5});await page.mouse.up();await layer.waitFor({state:'hidden'});
     console.log('PLAY_CONTEXT_UI focus fixed');
     await page.locator('#send').click();await page.waitForFunction(()=>window.sentResult!==null||window.uiError);assert.equal(await page.evaluate(()=>window.uiError),null);
     let stored=f.store.list('creator_play_observation');assert.equal(stored.length,1);assert.equal(stored[0].focus.kind,'screen_region');assert.deepEqual(stored[0].focus.runtime_ids,[],'empty canvas remains valid focus');
+    for(const [index,value] of [.7,.1,.2,.15].entries())assert.ok(Math.abs(stored[0].focus.rect[index]-value)<.003,'focus follows the captured pixels');
     console.log('PLAY_CONTEXT_UI first capture saved');
     const frame=f.service.observations.image(f.owner,f.session.id,stored[0].id,stored[0].frames.at(-1).id);
     const pixel=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;canvas.getContext('2d').drawImage(image,0,0);return [...canvas.getContext('2d').getImageData(440,270,1,1).data];},`data:${frame.frame.mime};base64,${frame.bytes.toString('base64')}`);

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { inspectGLB, MAX_GLB_BYTES } from './glb.mjs';
 import { createHash } from 'node:crypto';
 import { CreationService } from '../creation/service.mjs';
+import {threeEditorBundle} from './three-editor-bundle.mjs';
 import {adminPreviewBundle,adminModelBytes} from '../creation/admin-model-preview.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const port = Number(process.env.WORLD_ATELIER_PREVIEW_PORT ?? 48910);
@@ -81,6 +82,24 @@ const server = http.createServer(async(req,res)=>{
       }
       if(['/admin-assets/admin.js','/admin-assets/admin.css','/admin-assets/admin-resource-charts.js','/admin-assets/admin-token-usage.js'].includes(path)){creation.admin.cookieUser(req);return file(res,resolve(app,basename(path)),false,true);}
       return json(res,404,{error:'页面不存在'});
+    }
+    if (['/three-editor-preview.js','/three-editor.html'].includes(path))return file(res,resolve(app,path.slice(1)));
+    if(path==='/three-editor-font.ttf'){
+      const font=resolve(root,'runtimes/model-preview/fonts/NotoSansSC.ttf'),stat=statSync(font);
+      const etag='W/"'+stat.size+'-'+Math.trunc(stat.mtimeMs)+'"';
+      res.setHeader('ETag',etag);res.setHeader('Cache-Control','public, no-cache');
+      if(req.headers['if-none-match']===etag){res.writeHead(304);res.end();return;}
+      res.writeHead(200,{'Content-Type':'font/ttf','Content-Length':stat.size});
+      if(req.method==='HEAD')res.end();else createReadStream(font).pipe(res);
+      return;
+    }
+    if(path==='/three-editor-runtime.js'){
+      const {key,promise}=threeEditorBundle(root),etag='"'+key+'"';
+      res.setHeader('ETag',etag);res.setHeader('Cache-Control','no-cache');
+      if(req.headers['if-none-match']===etag){res.writeHead(304);res.end();return;}
+      const bytes=await promise;
+      res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-cache','Content-Length':bytes.length});
+      res.end(req.method==='HEAD'?undefined:bytes);return;
     }
     if (['/viewport-navigation.js','/viewport-annotations.js','/viewport-annotations.css','/native-authoring.js','/native-preview.js','/control-layout-inspector.js'].includes(path)) return file(res,resolve(app,path.slice(1)));
     if (['/prefab-lab.js','/prefab-lab.css','/animation-timeline.js'].includes(path)) return file(res,resolve(app,path.slice(1)));

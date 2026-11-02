@@ -3,6 +3,9 @@
 import { clone,fail,hash,identifier } from './schema.mjs';
 import { HIERARCHY_SCHEMA,target as localTarget,scopedAddressKey,resolveScene } from './hierarchy.mjs';
 import { hierarchyRuntimeId } from './hierarchy-view.mjs';
+import { NATIVE_SCHEMA } from './native-source.mjs';
+import { nativeObjects,nativeScopedAddress } from './native-reference.mjs';
+import { nativeAddressKey } from './native-view.mjs';
 const FLAT='creation-flat-1';
 function scoped(scope){return{project_id:identifier(scope?.project_id),branch_id:identifier(scope?.branch_id),resource_id:identifier(scope?.resource_id)};}
 function canonical(value,scope){
@@ -23,11 +26,13 @@ function pinned(address,sourceRevision,fields={}){
     source_revision:sourceRevision,object_version:fields.object_version??null,resource_version:fields.resource_version??null,definition_revision:fields.definition_revision??null,
     ...(fields.node_version!==undefined?{node_version:fields.node_version}:{}),...(fields.missing?{missing:true}:{})};
 }
-export function targetFromAttachment(attachment,scope){
+export function targetFromAttachment(attachment,scope,documentSchema=attachment?.document_schema){
   if(!attachment||typeof attachment!=='object')fail(422,'附件无效');
   // These are captured values only. Missing legacy metadata stays null; a
   // supplied scope completes legacy addresses but cannot supply new versions.
-  const address=addressOf(attachment,scope);
+  const address=documentSchema===NATIVE_SCHEMA
+    ?nativeScopedAddress(attachment.address??attachment.snapshot?.address,scoped(scope))
+    :addressOf(attachment,scope);
   if(['project_id','branch_id','resource_id'].some(k=>attachment[k]!=null&&attachment[k]!==address[k]))fail(409,'附件身份与完整地址不一致');
   return pinned(address,attachment.source_revision??attachment.revision??null,{
     object_version:attachment.object_version,resource_version:attachment.resource_version,definition_revision:attachment.definition_revision,node_version:attachment.node_version});
@@ -73,7 +78,27 @@ export function resolvePublicTarget(manifest,scope,target){
   return publicTargetResolver(manifest,scope)(target);
 }
 export function publicTargetResolver(manifest,scope){
-  const s=scoped(scope),kind=schema(manifest),doc=manifest.resources[s.resource_id];
+  const s=scoped(scope);
+  if(manifest?.schema===NATIVE_SCHEMA){
+    if(!Object.hasOwn(manifest.resources,s.resource_id))return ()=>null;
+    const rows=nativeObjects(manifest,s);
+    const byAddress=new Map(rows.map(row=>[nativeAddressKey(row.address),row])),byId=new Map(rows.map(row=>[row.id,row]));
+    return target=>{
+      // A stale/foreign target in one run must not hide other valid activity.
+      if(!target||Object.keys(s).some(key=>target[key]!=null&&target[key]!==s[key]))return null;
+      const address=target.address??(target.definition_node_id!=null?target:null);
+      let row;
+      if(address){
+        let canonical;
+        try{canonical=nativeScopedAddress(address,s);}
+        catch(error){if(error.status===409||error.status===422)return null;throw error;}
+        row=byAddress.get(nativeAddressKey(canonical));
+        if(target.object_id!=null&&target.object_id!==row?.id&&target.object_id!==canonical.definition_node_id)return null;
+      }else row=byId.get(target.object_id);
+      return row?{runtimeId:row.id,address:row.address,contentFingerprint:row.version}:null;
+    };
+  }
+  const kind=schema(manifest),doc=manifest.resources[s.resource_id];
   const rows=kind===HIERARCHY_SCHEMA&&doc?new Map(resolveScene(manifest,s.resource_id,s).map(row=>[scopedAddressKey(row.address),row])):null;
   return target=>resolvePublicTargetIn(manifest,s,target,rows);
 }

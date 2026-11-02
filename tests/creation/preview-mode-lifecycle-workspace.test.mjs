@@ -29,7 +29,7 @@ function fixture({native=false,role='owner',resourceId='scene-A',entrySceneId='s
   async start(scene,packet){events.push(['runtime',this.id,'start',{...packet,scene}]);return startQueue.shift();}
  }
  const localDocuments=new Map();
- const sandbox={GodotPreview:FakePreview,NativeGodotPreview:FakeNativePreview,GamePlay:FakeGamePlay,isNative:()=>native,applyViewportDisplay(){},$:element,document:{querySelector:()=>null},onPreviewEvent:message=>events.push(['event',message.type]),closeChat(){},
+ const sandbox={GodotPreview:FakePreview,NativeGodotPreview:FakeNativePreview,ThreeEditorPreview:FakeNativePreview,GamePlay:FakeGamePlay,isNative:()=>native,applyViewportDisplay(){},$:element,document:{querySelector:()=>null},onPreviewEvent:message=>events.push(['event',message.type]),closeChat(){},
   // Mode lifecycle cases begin without an active prefab placement controller.
   prefabPlacement:null,viewportAnnotations:null,playContext:null,closePrefabLab(){},
   mainPreview:null,editorPreview:null,objectPreview:null,mainDocument:null,objectDocument:null,loadedSourceScene:null,sceneGeneration:0,mode:'edit',modePending:false,branch:{head:'source-v1',branch_id:'main',manifest:{entry_scene_id:entrySceneId}},doc:()=>({kind:'scene'}),project:{id:'project-A',role},resourceId,key:()=> 'project-A/main/'+resourceId,

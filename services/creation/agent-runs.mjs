@@ -21,7 +21,7 @@ import { HIERARCHY_SCHEMA, resolveScene, scopedAddressKey } from './hierarchy.mj
 import { hierarchyPreview } from './hierarchy-store.mjs';
 import { designKnowledgeIndex, SEMANTIC_AUTHORING_GUIDE } from './semantic-context.mjs';
 import {nativeWorldApiGuide,nativeSemanticAuthoringGuide,readNativeAgentSource,commitNativeWorkspaceApply,nativeTargetsForOperations} from './native-agent-workspace.mjs';
-import {nativeObjectViews,nativeAddressKey} from './native-view.mjs';
+import {nativeAddressKey} from './native-view.mjs';
 import {propertyActionTools,propertyActionContext,exposeActionProperties} from './authoring-actions.mjs';
 import {PLAY_CONTEXT_TOOLS,dispatchPlayContextTool} from './session-continuations.mjs';
 import {BRANCH_MERGE_TOOLS,BRANCH_MERGE_READ_TOOLS,BRANCH_MERGE_TOOL_NAMES,dispatchBranchMergeTool} from './native-merge-agent.mjs';
@@ -286,7 +286,16 @@ export class CreationAgentRuns {
     const executionText=expandReferenceText(text,session.draft_attachments??[],{includeIdentity:true})||'请查看所附图片。';
     if(input.model)session.model=input.model;
     session.effort=effort;session.access_mode=accessMode;session.execution_mode=executionMode;
-    const continued=this.continueGoal(session,input),attachments=autoResumeFrom?[]:clone(session.draft_attachments),run={id:id('run'),goal_id:continued?.id??id('goal'),session_id:sid,project_id:session.project_id,branch_id:session.branch_id,owner_user_id:user.id,client_user_message_id:messageId,input_hash:fingerprint,status:'starting',lease_generation:1,thread_id:session.executor_thread_id,model:session.model,input_revision:this.store.branchFor(user,session.project_id,session.branch_id).head,targets:attachments.filter(a=>!['prefab','knowledge'].includes(a.kind)&&a.role!=='reference').flatMap(a=>annotationTargets(a,{project_id:session.project_id,branch_id:session.branch_id,resource_id:a.resource_id},targetFromAttachment)),changes:[],verifications:[],deliveries:[],created_at:Date.now()};
+    const continued=this.continueGoal(session,input),attachments=autoResumeFrom?[]:clone(session.draft_attachments);
+    const targets=attachments.filter(a=>!['prefab','knowledge'].includes(a.kind)&&a.role!=='reference').flatMap(a=>{
+      const scope={project_id:session.project_id,branch_id:session.branch_id,resource_id:a.resource_id};
+      // Saved annotation members predate document_schema. Use their captured
+      // revision, even after the branch has migrated to a different schema.
+      const fixed=this.store.revisionMeta(a.source_revision??a.revision);
+      if(fixed&&fixed.project_id!==scope.project_id)fail(409,'附件源版本不属于当前项目');
+      return annotationTargets(a,scope,(member,scope)=>targetFromAttachment(member,scope,fixed?.schema??a.document_schema));
+    });
+    const run={id:id('run'),goal_id:continued?.id??id('goal'),session_id:sid,project_id:session.project_id,branch_id:session.branch_id,owner_user_id:user.id,client_user_message_id:messageId,input_hash:fingerprint,status:'starting',lease_generation:1,thread_id:session.executor_thread_id,model:session.model,input_revision:this.store.branchFor(user,session.project_id,session.branch_id).head,targets,changes:[],verifications:[],deliveries:[],created_at:Date.now()};
     if(autoResumeFrom){run.auto_resume_count=1;run.auto_resume_from=autoResumeFrom;}
     if(session.authoring_action)run.authoring_action=clone(session.authoring_action);
     run.effort=effort;run.access_mode=accessMode;run.execution_mode=executionMode;run.turn_ids=[];run.goal_initializing=executionMode==='goal';if(executionMode==='goal')run.executor_goal_objective=executionText;
@@ -694,10 +703,7 @@ export class CreationAgentRuns {
       const cacheKey=JSON.stringify([p,b,scope.resource_id,revision]);
       if(!this.publicTargetResolvers.has(cacheKey)){
         const fixed=this.store.readRevision(revision)?.manifest;if(!fixed)return null;
-        if(fixed.schema==='creation-native-1'){
-          const objects=new Map(nativeObjectViews(fixed,scope.resource_id,scope).map(object=>[nativeAddressKey(object.address),object]));
-          this.publicTargetResolvers.set(cacheKey,target=>{const object=objects.get(nativeAddressKey(target.address??target));return object?{runtimeId:object.id,address:object.address,contentFingerprint:object.version}:null;});
-        }else this.publicTargetResolvers.set(cacheKey,publicTargetResolver(fixed,scope));
+        this.publicTargetResolvers.set(cacheKey,publicTargetResolver(fixed,scope));
         while(this.publicTargetResolvers.size>12)this.publicTargetResolvers.delete(this.publicTargetResolvers.keys().next().value);
       }
       return this.publicTargetResolvers.get(cacheKey)(target);

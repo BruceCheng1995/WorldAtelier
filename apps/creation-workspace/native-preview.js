@@ -54,7 +54,7 @@ export async function prepareNativePreview(request,scene,{signal,onProgress=()=>
 
 /** Existing editor protocol over a fixed native PackedScene bundle. */
 export class NativeGodotPreview extends GodotPreview{
-  constructor(host,mode,onEvent,request){super(host,mode,onEvent);this.request=request;this.nativeGeneration=0;this.nativeKey=null;this.preparingKey=null;this.buildAbort=null;this.frame.title=mode==='object'?'Godot 原生对象预览':'Godot 原生场景编辑视口';}
+  constructor(host,mode,onEvent,request){super(host,mode,onEvent);this.request=request;this.nativeGeneration=0;this.nativeKey=null;this.preparingKey=null;this.buildAbort=null;}
   loadRuntime(){return Promise.resolve(null);}
   receive(event){
     const pendingText=this.preparingKey?this.status.textContent:null;

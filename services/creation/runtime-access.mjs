@@ -25,7 +25,7 @@ const scalarWithoutComment=text=>{
 
 /** Resolve only this fixed build's actual Godot save prefix, never arbitrary
  * paths supplied by a game or a caller. Old source/artifact bytes stay intact. */
-export function runtimeSaveDomain(builds,job){
+function fixedGodotDomain(builds,job){
   try{
     const entry=job.source_files?.find(file=>file.path==='project.godot');if(!entry)return null;
     const bytes=readFileSync(join(builds.directory,job.id,'project','project.godot'));if(hash(bytes)!==entry.sha256)return null;
@@ -43,6 +43,32 @@ export function runtimeSaveDomain(builds,job){
   }catch{return null;}
 }
 
+export function runtimeSaveDomain(builds,job){
+  return job.web_engine==='three'?null:fixedGodotDomain(builds,job);
+}
+
+// A converted high score is the one declared scalar, in this authenticated
+// build's owned namespace. A file name or namespace sent by a browser never
+// participates in locating a save.
+export function fixedScoreBridge(builds,job){
+  if(job.purpose&&job.purpose!=='play'||job.kind!=='application'||
+     ![job.project_id,job.branch_id].every(id=>typeof id==='string'&&/^[A-Za-z0-9_-]{1,180}$/.test(id)))return null;
+  const entry=job.source_files?.find(file=>file.path==='web/save-schema.json');
+  if(!entry||entry.size>2048)return null;
+  const domain=fixedGodotDomain(builds,job),namespace=job.storage?.namespace;
+  if(!namespace||namespace!==job.project_id+':'+job.branch_id||
+     domain?.prefix!=='/userfs/godot/app_userdata/'+safeName(namespace))return null;
+  try{
+    const bytes=readFileSync(join(builds.directory,job.id,'project','web','save-schema.json'));
+    if(bytes.length!==entry.size||hash(bytes)!==entry.sha256)return null;
+    const spec=JSON.parse(bytes);
+    if(Object.keys(spec).some(k=>!['format','file','section','key'].includes(k))||
+       spec.format!=='wa-config-high-score-1'||typeof spec.file!=='string'||!/^[A-Za-z0-9_-]{1,64}\.cfg$/.test(spec.file)||
+       ![spec.section,spec.key].every(key=>typeof key==='string'&&/^[A-Za-z0-9_-]{1,48}$/.test(key)))return null;
+    return {domain,...spec};
+  }catch{return null;}
+}
+
 export class RuntimeAccess {
   constructor({service,network}){this.service=service;this.store=service.store;this.network=network;}
   issue(user,job,req){
@@ -55,9 +81,9 @@ export class RuntimeAccess {
     const token=randomBytes(32).toString('base64url'),nonce=randomBytes(24).toString('base64url'),created=Date.now();
     const loginToken=String(req.headers.authorization??'').replace(/^Bearer /,'');
     const login=this.store.authenticate(loginToken);if(login.id!==user.id)fail(403,'运行授权必须绑定当前登录');
-    const record={id:hash(token),job_id:job.id,user_id:user.id,login_id:hash(loginToken),project_id:job.project_id,branch_id:job.branch_id,source_revision:job.source_revision,canonical_identity:job.canonical_identity??null,purpose:job.purpose??'application',workspace_origin:workspaceOrigin,runtime_origin:runtimeOrigin,launch_nonce:nonce,created_at:created,expires_at:created+TTL,maximum_at:created+MAX_AGE,storage:runtimeSaveDomain(this.service.builds,job)};
+    const record={id:hash(token),job_id:job.id,user_id:user.id,login_id:hash(loginToken),project_id:job.project_id,branch_id:job.branch_id,source_revision:job.source_revision,canonical_identity:job.canonical_identity??null,purpose:job.purpose??'application',workspace_origin:workspaceOrigin,runtime_origin:runtimeOrigin,launch_nonce:nonce,created_at:created,expires_at:created+TTL,maximum_at:created+MAX_AGE,storage:runtimeSaveDomain(this.service.builds,job),score_bridge:fixedScoreBridge(this.service.builds,job)};
     this.store.put(KIND,record);
-    return {policy:RUNTIME_ACCESS_POLICY,web_url:`${runtimeOrigin}/creation-runtime/${token}/${job.id}/launch.html`,runtime_origin:runtimeOrigin,parent_origin:workspaceOrigin,launch_nonce:nonce,build_id:job.id,expires_at:record.expires_at,storage:record.storage,storage_status:record.storage?'verified':'unavailable',legacy_save_origin:workspaceOrigin};
+    return {policy:RUNTIME_ACCESS_POLICY,web_url:`${runtimeOrigin}/creation-runtime/${token}/${job.id}/launch.html`,runtime_origin:runtimeOrigin,parent_origin:workspaceOrigin,launch_nonce:nonce,build_id:job.id,expires_at:record.expires_at,storage:record.storage,storage_status:job.web_engine==='three'?'three_branch_storage':record.storage?'verified':'unavailable',legacy_save_origin:workspaceOrigin};
   }
   authorize(token,req){
     if(!TOKEN.test(token))fail(403,'运行授权无效');
@@ -87,7 +113,7 @@ export class RuntimeAccess {
     if(!['GET','HEAD'].includes(req.method))fail(405,'运行资源只允许读取');
     const base=url.pathname.slice(0,url.pathname.lastIndexOf('/')+1);
     if(asset==='launch.html'){
-      const configuration={policy:RUNTIME_ACCESS_POLICY,job_id:job.id,project_id:job.project_id,branch_id:job.branch_id,source_revision:job.source_revision,canonical_identity:job.canonical_identity??null,runtime_source_hash:job.runtime_source_hash??null,resource_id:job.entry_scene_id,purpose:job.purpose??'application',parent_origin:grant.workspace_origin,runtime_origin:origin,launch_nonce:grant.launch_nonce,storage:grant.storage,base};
+      const configuration={policy:RUNTIME_ACCESS_POLICY,job_id:job.id,project_id:job.project_id,branch_id:job.branch_id,source_revision:job.source_revision,canonical_identity:job.canonical_identity??null,runtime_source_hash:job.runtime_source_hash??null,resource_id:job.entry_scene_id,purpose:job.purpose??'application',web_engine:job.web_engine??'godot',parent_origin:grant.workspace_origin,runtime_origin:origin,launch_nonce:grant.launch_nonce,storage:grant.storage,score_bridge:grant.score_bridge??null,base};
       const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>世界工坊 · 游戏</title><style>html,body,#game{margin:0;width:100%;height:100%;border:0;background:#10151c;color:#dae5ef}body{overflow:hidden;font:14px system-ui}#status{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}#status:empty{display:none}</style><body><div id="status">正在载入固定游戏…</div><script id="runtime-config" type="application/json">${escapeJson(configuration)}</script><script type="module" src="host.js"></script></body></html>`;
       res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'private, no-store','Content-Security-Policy':`default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self' ${grant.workspace_origin}; base-uri 'none'; form-action 'none'`});res.end(req.method==='HEAD'?undefined:html);return true;
     }

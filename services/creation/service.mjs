@@ -1,5 +1,9 @@
 import {createAnnotationDraft} from './viewport-annotations.mjs';
 import {SemanticAuthoring} from './semantic-authoring.mjs';
+import {threeEditorIdentity} from '../preview/three-editor-bundle.mjs';
+import {nativeVisualProjection} from './three-native-visuals.mjs';
+import {randomBytes} from 'node:crypto';
+import {threeGameStarter,threeSceneProjection} from './three-scene-projection.mjs';
 import {prepareNativeEditorContent} from './native-editor-content.mjs';
 import { CreationEnvironments } from './environments.mjs';
 import { ProjectMedia } from './project-media.mjs';
@@ -73,7 +77,7 @@ export class CreationService {
     this.defaultProjects=defaultProjects?installDefaultProjects({store:this.store,native:this.native,projectMedia:this.projectMedia,directory:resolve(root,'content/default-projects')}):null;
     this.sessionImages=new SessionImages({store:this.store,data});
     this.environments=new CreationEnvironments({service:this});
-    this.builds=new CreationBuilds({service:this});
+    this.builds=new CreationBuilds({service:this});this.visualGrants=new Map();
     this.runtimeAccess=new RuntimeAccess({service:this,network});
     this.observations=new PlayObservations({service:this});
     this.continuations=new SessionContinuations({service:this});
@@ -106,6 +110,7 @@ export class CreationService {
       }});
       files=converted.files;
     }else files=new Map([
+      ['web/main.js',threeGameStarter],
       ['project.godot',Buffer.from('config_version=5\n[application]\nconfig/name="World Atelier Game"\nrun/main_scene="res://scenes/main.tscn"\nconfig/features=PackedStringArray("4.6", "GL Compatibility")\n[display]\nwindow/size/viewport_width=1000\nwindow/size/viewport_height=700\n[rendering]\nrenderer/rendering_method="gl_compatibility"\n')],
       ['scenes/main.tscn',Buffer.from('[gd_scene format=3]\n[node name="Main" type="Node3D"]\nmetadata/wa_node_id = "main-root"\n')],
       ['.atelier/catalog.json',Buffer.from(JSON.stringify({format:1,entry_scene_id:'scene-harbor',resources:{'scene-harbor':{id:'scene-harbor',name:'初始场景',kind:'scene',path:'scenes/main.tscn'}}},null,2)+'\n')]
@@ -146,6 +151,11 @@ export class CreationService {
     if(!origin)return;const run=this.store.get('creator_run',origin.run_id);if(!run||run.session_id!==origin.session_id)return;
     if(!run.deliveries.some(d=>(typeof d==='string'?d:d.id)===delivery.id)){run.deliveries.push(delivery.id);this.store.put('creator_run',run);this.sessionEvent(run.session_id,{kind:'delivery_finished',run_id:run.id,delivery_id:delivery.id});this.agent?.publicState(run.project_id,run.branch_id);}
   }
+  authorizeVisualSource(user,p,b,revision){
+    const branch=this.store.branchFor(user,p,b),role=this.store.roleFor(user,this.store.projectFor(user,p));
+    if(!['owner','editor','viewer'].includes(role))fail(403,'渲染资源需要固定源稿的读取权限');
+    if(!this.store.ancestor(revision,branch.head))this.gameReleases.authorizeSource(user,p,b,revision);
+  }
   async request(req,res) {
     if(this.runtimeAccess.network.runtimeRequestOrigin(req))return this.runtimeAccess.request(req,res);
     const url=new URL(req.url,this.origin),path=url.pathname;
@@ -155,6 +165,14 @@ export class CreationService {
       if(!['GET','HEAD'].includes(req.method)&&req.headers.origin!==`http://${req.headers.host}`)fail(403,'写入必须来自当前工作台');
       const parts=path.slice('/creation-api/'.length).split('/').map(decodeURIComponent);
       const [area,p,action,b,operation]=parts;
+      if(area==='three-surfaces'&&req.method==='GET'){
+        const grant=this.visualGrants.get(p);
+        if(!grant||grant.expires<Date.now())fail(403,'渲染资源授权已过期，请刷新视口');
+        const boundUser=this.store.get('creator_user',grant.uid);
+        if(!boundUser||boundUser.disabled_at)fail(403,'账号不可用');
+        this.authorizeVisualSource(boundUser,grant.project,grant.branch,grant.revision);
+        this.builds.stream(req,res,grant.asset.path,grant.asset,'application/octet-stream');return true;
+      }
       let input;
       const body=async()=>input??=await readBody(req);
       if(area==='market'){
@@ -244,7 +262,7 @@ export class CreationService {
             json(res,200,this.worlds.native.playable(user,p,b,url.searchParams.get('resource_id')||branch.manifest.entry_scene_id));return true;
           }
           if(!b&&req.method==='POST'){json(res,201,this.store.fork(user,p,await body()));return true;}
-          if(b&&!operation&&req.method==='GET'){json(res,200,this.store.branchView(user,p,b));return true;}
+          if(b&&!operation&&req.method==='GET'){json(res,200,this.store.branchView(user,p,b,url.searchParams.get('revision')));return true;}
           if(operation==='transactions'&&req.method==='POST'){json(res,200,await this.committed(user,p,b,await body()));return true;}
           if(operation==='native-source'&&req.method==='GET'){json(res,200,this.native.source(user,p,b,Object.fromEntries(url.searchParams)));return true;}
           if(operation==='merge-preview'&&req.method==='POST'){
@@ -274,9 +292,26 @@ export class CreationService {
           if(operation==='hierarchy-preview'&&req.method==='POST'){json(res,200,hierarchyPreview(this.store,user,p,b,await body()));return true;}
           if(operation==='runtime-scene'&&req.method==='GET'){
             let branch=this.store.branchView(user,p,b);const revision=url.searchParams.get('revision');
-            if(revision){const fixed=this.store.get('creator_revision',revision);if(!fixed||fixed.project_id!==p)fail(409,'场景读取需要此项目的固定源版本');if(!this.store.ancestor(revision,branch.head)){if(fixed.manifest.schema!==NATIVE_SCHEMA)fail(409,'场景读取需要此分支可达的固定源版本');try{this.gameReleases.authorizeSource(user,p,b,revision);}catch(error){if(!this.worlds?.native.authorizeSource(user,p,b,revision))throw error;}}branch={...branch,head:revision,manifest:fixed.manifest};}
+            if(revision&&revision!==branch.head){const fixed=this.store.get('creator_revision',revision);if(!fixed||fixed.project_id!==p)fail(409,'场景读取需要此项目的固定源版本');if(!this.store.ancestor(revision,branch.head)){if(fixed.manifest.schema!==NATIVE_SCHEMA)fail(409,'场景读取需要此分支可达的固定源版本');try{this.gameReleases.authorizeSource(user,p,b,revision);}catch(error){if(!this.worlds?.native.authorizeSource(user,p,b,revision))throw error;}}branch={...branch,head:revision,manifest:fixed.manifest};}
             const scene=this.assets.scene(user,p,branch,url.searchParams.get('resource_id')||branch.manifest.entry_scene_id,this.requestOrigin?.(req)??this.origin,branch.manifest.schema===HIERARCHY_SCHEMA?this.worlds?.runtimeManifest().capabilities??{}:{});
-            if(scene.document_schema===NATIVE_SCHEMA&&url.searchParams.get('thumbnail')==='1')scene.thumbnail_renderer_identity=this.builds.nativeThumbnailRendererIdentity();
+            if(scene.document_schema===NATIVE_SCHEMA){
+              const godotComparison=url.searchParams.get('renderer')==='godot';
+              const nativeSurfaces=Boolean(branch.manifest.source_files['web/native-visuals.json']);
+              scene.three_projection=godotComparison||nativeSurfaces?null:threeSceneProjection(branch.manifest,scene.resource_id,entry=>this.native.archive.read(entry));
+              const needGhostBake=url.searchParams.get('prefab_ghost')==='1'&&scene.kind==='prefab'&&!scene.three_projection;
+              if(!godotComparison&&(nativeSurfaces||needGhostBake)&&this.store.roleFor(user,this.store.projectFor(user,p))!=='player'){
+                const baked=await nativeVisualProjection({root:this.root,data:this.data,archive:this.native.archive,godot:this.native.godotPath},branch.manifest,scene.resource_id);
+                this.authorizeVisualSource(user,p,b,scene.scene_revision);
+                scene.three_projection=baked?.projection??null;
+                if(baked?.asset){
+                  const token=randomBytes(24).toString('base64url');
+                  this.visualGrants.set(token,{asset:baked.asset,uid:user.id,project:p,branch:b,revision:scene.scene_revision,expires:Date.now()+600000});
+                  if(this.visualGrants.size>512)this.visualGrants.delete(this.visualGrants.keys().next().value);
+                  baked.projection.binary={url:'/creation-api/three-surfaces/'+token,sha256:baked.asset.sha256,size:baked.asset.size};
+                }
+              }
+              if(url.searchParams.get('thumbnail')==='1')scene.thumbnail_renderer_identity=scene.three_projection?threeEditorIdentity(this.root):this.builds.nativeThumbnailRendererIdentity();
+            }
             json(res,200,scene);return true;
           }
           if(operation==='game-releases'){

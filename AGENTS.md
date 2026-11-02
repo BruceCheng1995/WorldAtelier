@@ -1,5 +1,9 @@
 # 世界工坊 · World Atelier
 
+## Three.js Web authoring (2026-11-02)
+
+Use `docs/THREE-WEB.md` for the Web target. New empty games have a versioned `web/main.js`. Eligible native scenes use the Three.js editor. The nine bundled default mains have fixed Web entry points. Projects with web/native-visuals.json derive native surfaces and Controls in an isolated headless worker. Use the workbench’s Godot comparison window to check the same fixed source. Both game implementations use the central fixed project and preserve stable content identities. Godot targets, compatibility editing, explicit shared worlds and unported games continue to use their respective native paths described below. Keep authored JavaScript on the isolated game origin. Verify Web gameplay and Godot export separately.
+
 ## Deploying a clone or opening the default projects
 
 For a deployment-only task, use `docs/CONTAINER-DEPLOYMENT.md` on Windows/Linux (Docker Desktop/WSL2 or Docker Engine), or `docs/AGENT-DEPLOYMENT.md` for native macOS. Check the actual isolation and exact toolchain, start the existing workbench, and verify actual default-game Play. Do not create replacement demos or modify gameplay to compensate for missing dependencies. Viewing the examples needs no Codex login; Agent creation is a separate setup outside the demo container profile.
